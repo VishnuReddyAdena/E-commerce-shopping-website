@@ -1,0 +1,16 @@
+{
+  "short_name": "NexaCart Admin",
+  "name": "NexaCart Premium Admin Portal",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "start_url": "/admin-dashboard",
+  "background_color": "#F8FAFC",
+  "theme_color": "#2563EB",
+  "display": "standalone",
+  "orientation": "portrait"
+}
