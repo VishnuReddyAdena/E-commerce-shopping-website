@@ -82,16 +82,22 @@ const AuthGate = ({ children }) => {
     location.pathname.startsWith('/signup') ||
     location.pathname.startsWith('/reset-password');
 
-  // Show normal scrollable landing page for guests, but intercept clicks to prompt sign in
+  // Show normal scrollable landing page for guests, but intercept clicks on interactive items to prompt sign in
   if (!token && !isPublicRoute) {
     return (
       <div 
         onClickCapture={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setAuthOpen(true);
+          const target = e.target;
+          // Check if the clicked element or its parent is interactive (buttons, links, inputs, cursor-pointer items)
+          const isInteractive = target.closest('a, button, input, select, textarea, [role="button"], .cursor-pointer, .product-card');
+          
+          if (isInteractive) {
+            e.preventDefault();
+            e.stopPropagation();
+            setAuthOpen(true);
+          }
         }}
-        className="w-full relative cursor-pointer"
+        className="w-full relative"
       >
         {children}
       </div>
