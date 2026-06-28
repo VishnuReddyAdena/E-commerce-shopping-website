@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { authService } from '../services/auth';
 import { X, Mail, Lock, User, Key, Chrome, Github, Globe } from 'lucide-react';
 
 const AuthModal = ({ isOpen, onClose }) => {
@@ -19,22 +20,12 @@ const AuthModal = ({ isOpen, onClose }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isForgotPassword) {
-      // Mock forgot password trigger
       try {
-        const res = await fetch('http://localhost:5000/api/auth/forgot-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email })
-        });
-        const data = await res.json();
-        if (res.ok) {
-          addNotification(data.message, 'success');
-          setIsForgotPassword(false);
-        } else {
-          addNotification(data.message, 'error');
-        }
+        await authService.forgotPassword(email);
+        addNotification('Password reset link sent to your email successfully!', 'success');
+        setIsForgotPassword(false);
       } catch (err) {
-        addNotification('Server error', 'error');
+        addNotification(err.message || 'Failed to send reset link', 'error');
       }
       return;
     }

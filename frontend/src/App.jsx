@@ -11,6 +11,7 @@ import CheckoutForm from './components/CheckoutForm';
 import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import VerifyEmail from './pages/VerifyEmail';
+import ResetPassword from './pages/ResetPassword';
 import LiveChat from './components/LiveChat';
 import ProductCompare from './components/ProductCompare';
 import Login from './pages/Login';
@@ -74,11 +75,12 @@ const AuthGate = ({ children }) => {
   const { token, authOpen, setAuthOpen } = useApp();
   const location = useLocation();
 
-  // Email verification link, login, and signup are public routes
+  // Email verification link, login, signup, and reset-password are public routes
   const isPublicRoute = 
     location.pathname.startsWith('/verify-email') || 
     location.pathname.startsWith('/login') || 
-    location.pathname.startsWith('/signup');
+    location.pathname.startsWith('/signup') ||
+    location.pathname.startsWith('/reset-password');
 
   // Auto-open auth modal for guests on every non-public route
   useEffect(() => {
@@ -202,16 +204,17 @@ const MainLayout = () => {
       <main className="flex-grow">
         <AuthGate>
           <Routes>
-            <Route path="/" element={user?.role === 'admin' ? <Navigate to="/admin-dashboard" replace /> : <Home />} />
+            <Route path="/" element={<Home />} />
             <Route path="/shop" element={<Shop />} />
             <Route path="/product/:id" element={<ProductDetail />} />
             <Route path="/checkout" element={<CheckoutForm />} />
-            <Route path="/dashboard" element={user?.role === 'admin' ? <Navigate to="/admin-dashboard" replace /> : <Dashboard />} />
-            <Route path="/account" element={user?.role === 'admin' ? <Navigate to="/admin-dashboard" replace /> : <Dashboard />} />
-            <Route path="/profile" element={user?.role === 'admin' ? <Navigate to="/admin-dashboard" replace /> : <Profile />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/account" element={<Dashboard />} />
+            <Route path="/profile" element={<Profile />} />
             <Route path="/login" element={token ? <Navigate to="/" replace /> : <Login />} />
             <Route path="/signup" element={token ? <Navigate to="/" replace /> : <Signup />} />
             <Route path="/verify-email/:token" element={<VerifyEmail />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
           </Routes>
         </AuthGate>
       </main>
