@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import axios from 'axios';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5050';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || 'http://localhost:5050';
 
 export const authService = {
   async signUp(email, password, name, role = 'user', country = 'India', referralCodeApplied = '') {

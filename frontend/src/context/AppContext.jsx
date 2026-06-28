@@ -10,7 +10,7 @@ import { setCategories as setReduxCategories } from '../store/categoriesSlice';
 
 const AppContext = createContext();
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5050';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || 'http://localhost:5050';
 
 export const AppProvider = ({ children }) => {
   const dispatch = useDispatch();
