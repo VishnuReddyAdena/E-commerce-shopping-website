@@ -82,71 +82,18 @@ const AuthGate = ({ children }) => {
     location.pathname.startsWith('/signup') ||
     location.pathname.startsWith('/reset-password');
 
-  // Auto-open auth modal for guests on every non-public route
-  useEffect(() => {
-    if (!token && !isPublicRoute) {
-      setAuthOpen(true);
-    }
-  }, [token, isPublicRoute, setAuthOpen]);
-
-  // Show full-screen gate for guests
+  // Show normal scrollable landing page for guests, but intercept clicks to prompt sign in
   if (!token && !isPublicRoute) {
     return (
-      <div className="min-h-screen flex flex-col relative">
-        {/* Blurred/locked page preview */}
-        <div className="flex-grow select-none pointer-events-none filter blur-sm opacity-30 overflow-hidden max-h-screen">
-          {children}
-        </div>
-
-        {/* Overlay prompt */}
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="relative bg-white rounded-[28px] shadow-2xl border border-slate-200/80 p-10 max-w-sm w-full text-center flex flex-col items-center gap-5 animate-in fade-in zoom-in-95">
-            {/* Icon */}
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-lg">
-              <Lock className="w-8 h-8 text-white" />
-            </div>
-
-            {/* Branding */}
-            <div>
-              <div className="flex items-center justify-center gap-2 mb-1">
-                <span className="bg-gradient-to-tr from-blue-650 to-indigo-650 text-white w-7 h-7 rounded-xl flex items-center justify-center font-black text-sm shadow-md">N</span>
-                <span className="font-extrabold text-base text-slate-800">NexaCart</span>
-              </div>
-              <h2 className="text-xl font-extrabold text-slate-900 tracking-tight mt-2">Sign in to continue</h2>
-              <p className="text-xs text-slate-500 font-medium mt-1.5 leading-relaxed">
-                You need to be logged in to browse, search, and shop on NexaCart.
-              </p>
-            </div>
-
-            {/* Perks */}
-            <div className="w-full grid grid-cols-3 gap-3 text-center">
-              {[
-                { icon: ShoppingBag, label: 'Shop & Browse', color: 'text-blue-600 bg-blue-50' },
-                { icon: Star, label: 'Earn Rewards', color: 'text-amber-600 bg-amber-50' },
-                { icon: Shield, label: 'Secure Orders', color: 'text-emerald-600 bg-emerald-50' },
-              ].map(({ icon: Icon, label, color }) => (
-                <div key={label} className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wide leading-tight">{label}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* CTA */}
-            <button
-              onClick={() => setAuthOpen(true)}
-              className="w-full bg-[#2874F0] hover:bg-[#1963d2] active:scale-[0.98] text-white py-3.5 rounded-2xl text-sm font-extrabold shadow-lg hover:shadow-xl transition-all uppercase tracking-widest"
-            >
-              Sign In / Register
-            </button>
-
-            <p className="text-[10px] text-slate-400 font-medium">
-              New here? Registration is free &amp; instant.
-            </p>
-          </div>
-        </div>
+      <div 
+        onClickCapture={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setAuthOpen(true);
+        }}
+        className="w-full relative cursor-pointer"
+      >
+        {children}
       </div>
     );
   }
