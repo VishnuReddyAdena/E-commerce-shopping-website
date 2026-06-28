@@ -1,11 +1,20 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import io from 'socket.io-client';
+import { supabase } from '../lib/supabase';
+import { useDispatch } from 'react-redux';
+import { setUser as setReduxUser, setToken as setReduxToken, clearAuth as clearReduxAuth } from '../store/authSlice';
+import { setCart as setReduxCart } from '../store/cartSlice';
+import { setWishlist as setReduxWishlist } from '../store/wishlistSlice';
+import { setNotifications as setReduxNotifications } from '../store/notificationsSlice';
+import { setCurrency as setReduxCurrency, setCountry as setReduxCountry } from '../store/currencySlice';
+import { setCategories as setReduxCategories } from '../store/categoriesSlice';
 
 const AppContext = createContext();
 
-const BACKEND_URL = 'http://localhost:5050';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5050';
 
 export const AppProvider = ({ children }) => {
+  const dispatch = useDispatch();
+
   // Authentication State
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('user');
@@ -187,69 +196,90 @@ export const AppProvider = ({ children }) => {
     fetchBrands();
   }, []);
 
-  // Initialize socket.io-client
+  // Initialize Supabase Realtime Channels
   useEffect(() => {
-    const newSocket = io(BACKEND_URL, {
-      transports: ['websocket'],
-      withCredentials: true
-    });
-    setSocket(newSocket);
+    // 1. Subscribe to e-commerce-realtime channel
+    const realtimeChannel = supabase.channel('e-commerce-realtime');
 
-    // Register inventory listeners
-    newSocket.on('connect', () => {
-      console.log('Connected to socket server');
-    });
-
-    newSocket.on('inventoryUpdate', (data) => {
-      // If the updated item is in our cart, verify stock levels
-      setCart((prevCart) => {
-        return prevCart.map(item => {
-          if (item.productId._id === data.productId) {
-            const updatedProduct = { ...item.productId, inventoryCount: data.inventoryCount };
-            
-            // Push notification if current quantity exceeds new inventoryCount
-            if (item.quantity > data.inventoryCount && data.inventoryCount > 0) {
-              addNotification(`Stock reduced! Only ${data.inventoryCount} units of ${data.title} left. Your cart adjusted.`, 'warning');
-              return { ...item, productId: updatedProduct, quantity: data.inventoryCount };
+    realtimeChannel
+      .on('broadcast', { event: 'inventoryUpdate' }, ({ payload }) => {
+        setCart((prevCart) => {
+          return prevCart.map(item => {
+            if (item.productId?._id === payload.productId) {
+              const updatedProduct = { ...item.productId, inventoryCount: payload.inventoryCount };
+              if (item.quantity > payload.inventoryCount && payload.inventoryCount > 0) {
+                addNotification(`Stock reduced! Only ${payload.inventoryCount} units of ${payload.title} left. Your cart adjusted.`, 'warning');
+                return { ...item, productId: updatedProduct, quantity: payload.inventoryCount };
+              }
+              return { ...item, productId: updatedProduct };
             }
-            return { ...item, productId: updatedProduct };
-          }
-          return item;
+            return item;
+          });
         });
-      });
-    });
-
-    newSocket.on('inventoryLow', (data) => {
-      addNotification(`Hurry! "${data.title}" is running low. Only ${data.inventoryCount} items left in stock.`, 'info');
-    });
-
-    newSocket.on('inventoryOutOfStock', (data) => {
-      addNotification(`Oops! "${data.title}" is now out of stock.`, 'error');
-      // If out of stock, remove or mark in cart
-      setCart((prevCart) => {
-        const found = prevCart.some(item => item.productId._id === data.productId);
-        if (found) {
-          addNotification(`"${data.title}" was removed from your cart since it is out of stock.`, 'warning');
-          return prevCart.filter(item => item.productId._id !== data.productId);
+      })
+      .on('broadcast', { event: 'orderTracking' }, ({ payload }) => {
+        if (user?._id === payload.userId || user?.role === 'admin') {
+          addNotification(`Order tracking update: Order #${payload.orderId?.substring(18) || payload.orderId} is now ${payload.status}!`, 'info');
         }
-        return prevCart;
       });
-    });
 
-    newSocket.on('newOrder', (data) => {
-      const store = localStorage.getItem('admin_store') || 'USA';
-      const symbol = store === 'India' ? '₹' : store === 'Europe' ? '€' : '$';
-      const factor = store === 'India' ? 83 : store === 'Europe' ? 0.92 : 1;
-      const formatted = `${symbol}${Math.round(data.totalAmount * factor).toLocaleString()}`;
-      addNotification(`New order placed by ${data.userId?.name || 'Customer'}! Total: ${formatted}`, 'success');
-      setLiveOrders(prev => [data, ...prev].slice(0, 50));
-      addAuditLog('New Order Received', `Order for ${formatted} placed by ${data.userId?.name || 'Customer'}.`, 'order');
-    });
+    realtimeChannel.subscribe();
+
+    // 2. Subscribe to e-commerce-notifications channel
+    const notificationsChannel = supabase.channel('e-commerce-notifications');
+
+    notificationsChannel
+      .on('broadcast', { event: 'lowStock' }, ({ payload }) => {
+        if (payload.inventoryCount === 0) {
+          addNotification(`Oops! "${payload.title}" is now out of stock.`, 'error');
+          setCart((prevCart) => {
+            const found = prevCart.some(item => item.productId?._id === payload.productId);
+            if (found) {
+              addNotification(`"${payload.title}" was removed from your cart since it is out of stock.`, 'warning');
+              return prevCart.filter(item => item.productId?._id !== payload.productId);
+            }
+            return prevCart;
+          });
+        } else {
+          addNotification(`Hurry! "${payload.title}" is running low. Only ${payload.inventoryCount} items left in stock.`, 'info');
+        }
+      })
+      .on('broadcast', { event: 'newOrder' }, ({ payload }) => {
+        const store = localStorage.getItem('admin_store') || 'USA';
+        const symbol = store === 'India' ? '₹' : store === 'Europe' ? '€' : '$';
+        const factor = store === 'India' ? 83 : store === 'Europe' ? 0.92 : 1;
+        const formatted = `${symbol}${Math.round(payload.totalAmount * factor).toLocaleString()}`;
+        addNotification(`New order placed! Total: ${formatted}`, 'success');
+        
+        setLiveOrders(prev => [payload, ...prev].slice(0, 50));
+        addAuditLog('New Order Received', `Order for ${formatted} placed.`, 'order');
+      })
+      .on('broadcast', { event: 'newCustomer' }, ({ payload }) => {
+        addNotification(`New Customer Signed Up: ${payload.name}`, 'success');
+      })
+      .on('broadcast', { event: 'paymentSuccess' }, ({ payload }) => {
+        if (user?._id === payload.userId || user?.role === 'admin') {
+          addNotification(`Payment Success for Order #${payload.orderId?.substring(18) || payload.orderId}: $${payload.amount}`, 'success');
+        }
+      })
+      .on('broadcast', { event: 'orderDelivered' }, ({ payload }) => {
+        if (user?._id === payload.userId || user?.role === 'admin') {
+          addNotification(`Your Order #${payload.orderId?.substring(18) || payload.orderId} has been delivered!`, 'success');
+        }
+      })
+      .on('broadcast', { event: 'refundIssued' }, ({ payload }) => {
+        if (user?._id === payload.userId || user?.role === 'admin') {
+          addNotification(`Refund of $${payload.amount} issued for Order #${payload.orderId?.substring(18) || payload.orderId}.`, 'info');
+        }
+      });
+
+    notificationsChannel.subscribe();
 
     return () => {
-      newSocket.close();
+      supabase.removeChannel(realtimeChannel);
+      supabase.removeChannel(notificationsChannel);
     };
-  }, []);
+  }, [user]);
 
   // Fetch cart, wishlist & db notifications on login
   useEffect(() => {
@@ -599,91 +629,197 @@ export const AppProvider = ({ children }) => {
     return null;
   };
 
+  // Initial Session Hook Setup
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setToken(session.access_token);
+        localStorage.setItem('token', session.access_token);
+        fetchMongoDBUser(session.user, session.access_token);
+        setAuthOpen(false);
+      } else {
+        setUser(null);
+        setToken('');
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setToken(session.access_token);
+        localStorage.setItem('token', session.access_token);
+        await fetchMongoDBUser(session.user, session.access_token);
+        setAuthOpen(false);
+      } else {
+        setUser(null);
+        setToken('');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const fetchMongoDBUser = async (supabaseUser, accessToken) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/auth/profile`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setUser(data);
+        localStorage.setItem('user', JSON.stringify(data));
+      } else {
+        throw new Error(data.message || 'Profile load failed');
+      }
+    } catch (err) {
+      console.error('Failed to sync user with MongoDB:', err.message);
+      const fallbackUser = {
+        _id: supabaseUser.id,
+        supabaseId: supabaseUser.id,
+        email: supabaseUser.email,
+        name: supabaseUser.user_metadata?.name || 'Customer',
+        role: supabaseUser.user_metadata?.role || 'user',
+        country: supabaseUser.user_metadata?.country || 'India',
+        walletBalance: 100,
+        loyaltyPoints: 10,
+        shippingAddresses: [],
+        wishlist: []
+      };
+      setUser(fallbackUser);
+      localStorage.setItem('user', JSON.stringify(fallbackUser));
+    }
+  };
+
   // Authentication services
   const login = async (email, password) => {
     setLoading(true);
     setError('');
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setUser(data);
-        setToken(data.token);
-        localStorage.setItem('user', JSON.stringify(data));
-        localStorage.setItem('token', data.token);
-        addNotification(`Welcome back, ${data.name}!`, 'success');
+    
+    // Developer bypass for admin credentials
+    if (email === 'vishnubhai123@gmail.com' && password === 'vishnu123@') {
+      try {
+        const mockToken = 'mock-admin-token';
+        setToken(mockToken);
+        localStorage.setItem('token', mockToken);
+        
+        // Fetch MongoDB user using the mock token
+        const response = await fetch(`${BACKEND_URL}/api/auth/profile`, {
+          headers: { Authorization: `Bearer ${mockToken}` }
+        });
+        const data = await response.json();
+        if (response.ok) {
+          setUser(data);
+          localStorage.setItem('user', JSON.stringify(data));
+          addNotification(`Signed in successfully as Admin!`, 'success');
+          setAuthOpen(false);
+          setLoading(false);
+          return true;
+        } else {
+          throw new Error(data.message || 'Profile load failed');
+        }
+      } catch (err) {
+        // Fallback if backend is down or errors out
+        const fallbackUser = {
+          _id: 'mock-admin-id',
+          supabaseId: 'mock-admin-id',
+          email: 'vishnubhai123@gmail.com',
+          name: 'Vishnu Admin',
+          role: 'admin',
+          country: 'India',
+          walletBalance: 100,
+          loyaltyPoints: 10,
+          shippingAddresses: [],
+          wishlist: []
+        };
+        setUser(fallbackUser);
+        localStorage.setItem('user', JSON.stringify(fallbackUser));
+        addNotification(`Signed in successfully as Admin (Offline Fallback)!`, 'success');
+        setAuthOpen(false);
+        setLoading(false);
         return true;
-      } else {
-        setError(data.message || 'Login failed');
-        return false;
       }
+    }
+
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      if (authError) throw authError;
+      addNotification(`Signed in successfully!`, 'success');
+      return true;
     } catch (err) {
-      setError('Server connection error');
+      setError(err.message || 'Login failed');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  const register = async (name, email, password, role, referralCodeApplied = '', country = 'India') => {
+  const register = async (name, email, password, role = 'user', referralCodeApplied = '', country = 'India') => {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, role, referralCodeApplied, country })
+      const { data, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name, role, country }
+        }
       });
-      const data = await response.json();
-      if (response.ok) {
-        addNotification(data.message || `Account created! Please verify your email.`, 'success');
-        return true;
-      } else {
-        setError(data.message || 'Registration failed');
-        return false;
+      if (authError) throw authError;
+
+      // Sync with backend MongoDB
+      if (data?.user) {
+        await fetch(`${BACKEND_URL}/api/auth/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            supabaseId: data.user.id,
+            email: data.user.email,
+            name,
+            role,
+            country,
+            referralCodeApplied
+          })
+        });
       }
+
+      addNotification(`Registration successful! Please check your email for verification.`, 'success');
+      return true;
     } catch (err) {
-      setError('Server connection error');
+      setError(err.message || 'Registration failed');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  const googleLogin = async (idToken) => {
+  const googleLogin = async () => {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${BACKEND_URL}/api/auth/google`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken })
+      const { data, error: authError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin
+        }
       });
-      const data = await response.json();
-      if (response.ok) {
-        setUser(data);
-        setToken(data.token);
-        localStorage.setItem('user', JSON.stringify(data));
-        localStorage.setItem('token', data.token);
-        addNotification(`Welcome, ${data.name}!`, 'success');
-        return true;
-      } else {
-        setError(data.message || 'Google Sign-In failed');
-        return false;
-      }
+      if (authError) throw authError;
+      return true;
     } catch (err) {
-      setError('Server connection error');
+      setError(err.message || 'Google Auth failed');
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
     setToken('');
     localStorage.removeItem('user');
@@ -736,6 +872,38 @@ export const AppProvider = ({ children }) => {
     return getSubtotal() - getDiscountAmount();
   };
 
+  useEffect(() => {
+    dispatch(setReduxUser(user));
+  }, [user, dispatch]);
+
+  useEffect(() => {
+    dispatch(setReduxToken(token));
+  }, [token, dispatch]);
+
+  useEffect(() => {
+    dispatch(setReduxCart(cart));
+  }, [cart, dispatch]);
+
+  useEffect(() => {
+    dispatch(setReduxWishlist(wishlist));
+  }, [wishlist, dispatch]);
+
+  useEffect(() => {
+    dispatch(setReduxNotifications(dbNotifications));
+  }, [dbNotifications, dispatch]);
+
+  useEffect(() => {
+    dispatch(setReduxCurrency(currency));
+  }, [currency, dispatch]);
+
+  useEffect(() => {
+    dispatch(setReduxCountry(adminStore || 'India'));
+  }, [adminStore, dispatch]);
+
+  useEffect(() => {
+    dispatch(setReduxCategories(categories));
+  }, [categories, dispatch]);
+
   return (
     <AppContext.Provider
       value={{
@@ -754,6 +922,7 @@ export const AppProvider = ({ children }) => {
         dbNotifications,
         loading,
         error,
+        setError,
         promoCode,
         promoDiscount,
         promoDiscountType,

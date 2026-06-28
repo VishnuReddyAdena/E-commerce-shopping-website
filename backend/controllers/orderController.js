@@ -1,37 +1,55 @@
-import Order from '../models/Order.js';
-import Product from '../models/Product.js';
-import User from '../models/User.js';
-import Notification from '../models/Notification.js';
+import { supabase } from '../config/supabase.js';
 import { memoryOrders, memoryProducts, memoryUsers, memoryNotifications } from '../config/memoryStore.js';
+import { realtimeService } from '../services/supabase.service.js';
 
-// Helper to emit stock update via Socket.io
+// Map Postgres row to Mongoose structure
+const mapOrderToFrontend = (order) => {
+  if (!order) return null;
+  return {
+    _id: order.id,
+    id: order.id,
+    userId: order.profiles ? {
+      _id: order.profiles.id,
+      id: order.profiles.id,
+      name: order.profiles.name,
+      email: order.profiles.email
+    } : order.user_id,
+    items: order.items || [],
+    paymentIntentId: order.payment_intent_id,
+    paymentStatus: order.payment_status,
+    orderStatus: order.order_status,
+    totalAmount: Number(order.total_amount) || 0,
+    shippingAddress: order.shipping_address || {},
+    createdAt: order.created_at,
+    updatedAt: order.updated_at
+  };
+};
+
 const emitInventoryUpdate = (req, product) => {
   const io = req.app.get('socketio');
   if (io) {
     io.emit('inventoryUpdate', {
-      productId: product._id,
+      productId: product.id || product._id,
       title: product.title,
-      inventoryCount: product.inventoryCount
+      inventoryCount: product.inventory_count || product.inventoryCount
     });
-    if (product.inventoryCount <= 5 && product.inventoryCount > 0) {
-      io.emit('inventoryLow', {
-        productId: product._id,
-        title: product.title,
-        inventoryCount: product.inventoryCount
-      });
-    } else if (product.inventoryCount === 0) {
-      io.emit('inventoryOutOfStock', {
-        productId: product._id,
-        title: product.title
-      });
-    }
   }
 };
 
-const emitNewOrder = (req, order) => {
+const emitNewOrder = async (req, order) => {
   const io = req.app.get('socketio');
   if (io) {
     io.emit('newOrder', order);
+  }
+
+  try {
+    await realtimeService.broadcastEvent('e-commerce-notifications', 'newOrder', {
+      orderId: order.id || order._id,
+      totalAmount: order.totalAmount,
+      userId: typeof order.userId === 'object' ? order.userId.id || order.userId._id : order.userId
+    });
+  } catch (err) {
+    console.error('Supabase order broadcast failed:', err.message);
   }
 };
 
@@ -46,7 +64,7 @@ export const createOrder = async (req, res) => {
   }
 
   if (!global.isDbConnected) {
-    // 1. Verify stock count
+    // Sandbox Mode
     for (const item of items) {
       const product = memoryProducts.find(p => p._id === item.productId);
       if (!product) return res.status(404).json({ message: `Product ${item.title} not found` });
@@ -55,14 +73,12 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    // 2. Decrement stock
     for (const item of items) {
       const product = memoryProducts.find(p => p._id === item.productId);
       product.inventoryCount -= item.quantity;
       emitInventoryUpdate(req, product);
     }
 
-    // 3. Debit wallet & credit loyalty points
     const user = memoryUsers.find(u => u._id === req.user._id);
     const pointsEarned = Math.round(totalAmount * 0.1);
     if (user) {
@@ -72,7 +88,6 @@ export const createOrder = async (req, res) => {
       user.loyaltyPoints += pointsEarned;
     }
 
-    // 4. Create Notification
     memoryNotifications.push({
       _id: `notif_${Math.random().toString(36).substring(2, 9)}`,
       userId: req.user._id,
@@ -100,58 +115,99 @@ export const createOrder = async (req, res) => {
   }
 
   try {
+    // 1. Verify stock count
     for (const item of items) {
-      const product = await Product.findById(item.productId);
+      const { data: product } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', item.productId)
+        .maybeSingle();
+
       if (!product) {
         return res.status(404).json({ message: `Product ${item.title} not found` });
       }
-      if (product.inventoryCount < item.quantity) {
+      if (product.inventory_count < item.quantity) {
         return res.status(400).json({
-          message: `Insufficient inventory for ${product.title}. Only ${product.inventoryCount} left.`
+          message: `Insufficient inventory for ${product.title}. Only ${product.inventory_count} left.`
         });
       }
     }
 
+    // 2. Decrement stock
     for (const item of items) {
-      const product = await Product.findById(item.productId);
-      product.inventoryCount -= item.quantity;
-      await product.save();
-      emitInventoryUpdate(req, product);
+      const { data: product } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', item.productId)
+        .maybeSingle();
+
+      const newStock = product.inventory_count - item.quantity;
+      
+      const { data: updatedProduct } = await supabase
+        .from('products')
+        .update({ inventory_count: newStock })
+        .eq('id', product.id)
+        .select()
+        .single();
+
+      emitInventoryUpdate(req, updatedProduct);
     }
 
-    const user = await User.findById(req.user._id);
+    // 3. Update User Wallet and loyalty points
+    const { data: user } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', req.user._id)
+      .maybeSingle();
+
     if (user) {
-      if (req.body.walletUsed && req.body.walletUsed > 0) {
-        user.walletBalance = Math.max(0, user.walletBalance - Number(req.body.walletUsed));
-      }
+      const currentWallet = Number(user.wallet_balance) || 0;
+      const finalWallet = Math.max(0, currentWallet - (Number(walletUsed) || 0));
       const pointsEarned = Math.round(totalAmount * 0.1);
-      user.loyaltyPoints += pointsEarned;
-      await user.save();
+      const finalPoints = (user.loyalty_points || 0) + pointsEarned;
 
-      await Notification.create({
-        userId: user._id,
-        title: 'Order Placed Successfully!',
-        message: `Your order for $${totalAmount.toFixed(2)} has been placed. You earned ${pointsEarned} loyalty points.`,
-        type: 'success'
-      });
+      await supabase
+        .from('profiles')
+        .update({
+          wallet_balance: finalWallet,
+          loyalty_points: finalPoints
+        })
+        .eq('id', user.id);
+
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: user.id,
+          title: 'Order Placed Successfully!',
+          message: `Your order for $${totalAmount.toFixed(2)} has been placed. You earned ${pointsEarned} loyalty points.`,
+          type: 'success'
+        });
     }
 
-    const order = new Order({
-      userId: req.user._id,
-      items,
-      paymentIntentId,
-      paymentStatus: paymentStatus || 'pending',
-      totalAmount,
-      shippingAddress
-    });
+    // 4. Create Order
+    const { data: createdOrder, error: createError } = await supabase
+      .from('orders')
+      .insert({
+        user_id: req.user._id,
+        items,
+        payment_intent_id: paymentIntentId,
+        payment_status: paymentStatus || 'pending',
+        order_status: 'Processing',
+        total_amount: Number(totalAmount),
+        shipping_address: shippingAddress
+      })
+      .select()
+      .single();
 
-    const createdOrder = await order.save();
+    if (createError) throw createError;
+
     const orderPayload = {
-      ...createdOrder.toObject(),
+      ...mapOrderToFrontend(createdOrder),
       userId: { _id: req.user._id, name: req.user.name }
     };
+    
     emitNewOrder(req, orderPayload);
-    res.status(201).json(createdOrder);
+    res.status(201).json(mapOrderToFrontend(createdOrder));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -170,13 +226,22 @@ export const getOrderById = async (req, res) => {
   }
 
   try {
-    const order = await Order.findById(req.params.id).populate('userId', 'name email');
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*, profiles:user_id(id, name, email)')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (error) throw error;
 
     if (order) {
-      if (order.userId._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      const frontendOrder = mapOrderToFrontend(order);
+      const orderUserId = typeof frontendOrder.userId === 'object' ? frontendOrder.userId.id : frontendOrder.userId;
+      
+      if (orderUserId !== req.user._id && req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Not authorized to view this order' });
       }
-      res.json(order);
+      res.json(frontendOrder);
     } else {
       res.status(404).json({ message: 'Order not found' });
     }
@@ -190,18 +255,23 @@ export const getOrderById = async (req, res) => {
 // @access  Private
 export const getMyOrders = async (req, res) => {
   if (!global.isDbConnected) {
-    // Return matching user orders
     const list = memoryOrders.filter(o => {
       const oId = typeof o.userId === 'object' ? o.userId._id : o.userId;
       return oId === req.user._id;
     });
-    // sort newest first
     return res.json(list.reverse());
   }
 
   try {
-    const orders = await Order.find({ userId: req.user._id }).sort({ createdAt: -1 });
-    res.json(orders);
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('user_id', req.user._id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json(orders.map(mapOrderToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -216,8 +286,14 @@ export const getOrders = async (req, res) => {
   }
 
   try {
-    const orders = await Order.find({}).populate('userId', 'id name').sort({ createdAt: -1 });
-    res.json(orders);
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('*, profiles:user_id(id, name, email)')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json(orders.map(mapOrderToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -233,18 +309,54 @@ export const updateOrderStatus = async (req, res) => {
     const order = memoryOrders.find(o => o._id === req.params.id);
     if (order) {
       order.orderStatus = status;
+      try {
+        if (status === 'Delivered') {
+          realtimeService.broadcastEvent('e-commerce-notifications', 'orderDelivered', {
+            orderId: order._id,
+            userId: typeof order.userId === 'object' ? order.userId._id : order.userId
+          });
+        }
+        realtimeService.broadcastEvent('e-commerce-realtime', 'orderTracking', {
+          orderId: order._id,
+          status: status,
+          userId: typeof order.userId === 'object' ? order.userId._id : order.userId
+        });
+      } catch (err) {
+        console.error('Realtime status update failed (sandbox):', err.message);
+      }
       return res.json(order);
     }
     return res.status(404).json({ message: 'Order not found' });
   }
 
   try {
-    const order = await Order.findById(req.params.id);
+    const { data: updatedOrder, error } = await supabase
+      .from('orders')
+      .update({ order_status: status })
+      .eq('id', req.params.id)
+      .select('*, profiles:user_id(id, name, email)')
+      .single();
 
-    if (order) {
-      order.orderStatus = status;
-      const updatedOrder = await order.save();
-      res.json(updatedOrder);
+    if (error) throw error;
+
+    if (updatedOrder) {
+      try {
+        if (status === 'Delivered') {
+          await realtimeService.broadcastEvent('e-commerce-notifications', 'orderDelivered', {
+            orderId: updatedOrder.id,
+            userId: updatedOrder.user_id
+          });
+        }
+        await realtimeService.broadcastEvent('e-commerce-realtime', 'orderTracking', {
+          orderId: updatedOrder.id,
+          status: status,
+          userId: updatedOrder.user_id
+        });
+      } catch (err) {
+        console.error('Supabase status update broadcast failed:', err.message);
+      }
+
+      res.json(mapOrderToFrontend(updatedOrder));
     } else {
       res.status(404).json({ message: 'Order not found' });
     }
@@ -258,13 +370,12 @@ export const updateOrderStatus = async (req, res) => {
 // @access  Private/Admin
 export const getAnalyticsStats = async (req, res) => {
   if (!global.isDbConnected) {
-    // Generate simulated analytics from memoryOrders
+    // Sandbox analytical generator
     const paidOrders = memoryOrders.filter(o => o.paymentStatus === 'paid');
     const totalRevenue = paidOrders.reduce((sum, o) => sum + o.totalAmount, 0);
     const activeOrdersCount = memoryOrders.filter(o => o.orderStatus === 'Processing' || o.orderStatus === 'Shipped').length;
     const totalOrdersCount = memoryOrders.length;
 
-    // Daily revenue (last 7 days)
     const dailyRevenueMap = {};
     for (let i = 0; i < 7; i++) {
       const date = new Date();
@@ -283,7 +394,6 @@ export const getAnalyticsStats = async (req, res) => {
 
     const dailyRevenue = Object.values(dailyRevenueMap).reverse();
 
-    // Top selling
     const productSalesMap = {};
     paidOrders.forEach(o => {
       o.items.forEach(i => {
@@ -296,7 +406,6 @@ export const getAnalyticsStats = async (req, res) => {
     });
     const topProducts = Object.values(productSalesMap).sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 5);
 
-    // Fallback default
     if (topProducts.length === 0 && memoryProducts.length > 0) {
       topProducts.push({
         _id: memoryProducts[0]._id,
@@ -316,52 +425,60 @@ export const getAnalyticsStats = async (req, res) => {
   }
 
   try {
-    const salesData = await Order.aggregate([
-      { $match: { paymentStatus: 'paid' } },
-      { $group: { _id: null, totalRevenue: { $sum: '$totalAmount' } } }
-    ]);
-    const totalRevenue = salesData.length > 0 ? salesData[0].totalRevenue : 0;
+    // Fetch paid and all orders
+    const { data: paidOrders, error: paidErr } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('payment_status', 'paid');
+    
+    if (paidErr) throw paidErr;
 
-    const activeOrdersCount = await Order.countDocuments({
-      orderStatus: { $in: ['Processing', 'Shipped'] }
+    const { data: allOrders, error: allErr } = await supabase
+      .from('orders')
+      .select('id, order_status');
+    
+    if (allErr) throw allErr;
+
+    const totalRevenue = paidOrders.reduce((sum, o) => sum + Number(o.total_amount), 0);
+    const activeOrdersCount = allOrders.filter(o => o.order_status === 'Processing' || o.order_status === 'Shipped').length;
+    const totalOrdersCount = allOrders.length;
+
+    // Daily revenue (last 7 days)
+    const dailyRevenueMap = {};
+    for (let i = 0; i < 7; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const str = date.toISOString().split('T')[0];
+      dailyRevenueMap[str] = { _id: str, revenue: 0, count: 0 };
+    }
+
+    paidOrders.forEach(o => {
+      const dateStr = new Date(o.created_at).toISOString().split('T')[0];
+      if (dailyRevenueMap[dateStr]) {
+        dailyRevenueMap[dateStr].revenue += Number(o.total_amount);
+        dailyRevenueMap[dateStr].count += 1;
+      }
     });
 
-    const totalOrdersCount = await Order.countDocuments({});
+    const dailyRevenue = Object.values(dailyRevenueMap).reverse();
 
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    // Top selling products
+    const productSalesMap = {};
+    paidOrders.forEach(o => {
+      if (Array.isArray(o.items)) {
+        o.items.forEach(i => {
+          if (!productSalesMap[i.productId]) {
+            productSalesMap[i.productId] = { _id: i.productId, title: i.title, quantitySold: 0, totalSales: 0 };
+          }
+          productSalesMap[i.productId].quantitySold += Number(i.quantity) || 0;
+          productSalesMap[i.productId].totalSales += (Number(i.price) || 0) * (Number(i.quantity) || 0);
+        });
+      }
+    });
 
-    const dailyRevenue = await Order.aggregate([
-      {
-        $match: {
-          paymentStatus: 'paid',
-          createdAt: { $gte: sevenDaysAgo }
-        }
-      },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-          revenue: { $sum: '$totalAmount' },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
-
-    const topProducts = await Order.aggregate([
-      { $match: { paymentStatus: 'paid' } },
-      { $unwind: '$items' },
-      {
-        $group: {
-          _id: '$items.productId',
-          title: { $first: '$items.title' },
-          quantitySold: { $sum: '$items.quantity' },
-          totalSales: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
-        }
-      },
-      { $sort: { quantitySold: -1 } },
-      { $limit: 5 }
-    ]);
+    const topProducts = Object.values(productSalesMap)
+      .sort((a, b) => b.quantitySold - a.quantitySold)
+      .slice(0, 5);
 
     res.json({
       totalRevenue,

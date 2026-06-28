@@ -1,5 +1,20 @@
-import Notification from '../models/Notification.js';
+import { supabase } from '../config/supabase.js';
 import { memoryNotifications } from '../config/memoryStore.js';
+
+// Map Postgres row to Mongoose structure
+const mapNotificationToFrontend = (n) => {
+  if (!n) return null;
+  return {
+    _id: n.id,
+    id: n.id,
+    userId: n.user_id,
+    title: n.title,
+    message: n.message,
+    type: n.type,
+    readStatus: n.is_read,
+    createdAt: n.created_at
+  };
+};
 
 // @desc    Get user notifications
 // @route   GET /api/notifications
@@ -11,8 +26,15 @@ export const getMyNotifications = async (req, res) => {
   }
 
   try {
-    const notifications = await Notification.find({ userId: req.user._id }).sort({ createdAt: -1 });
-    res.json(notifications);
+    const { data: notifications, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', req.user._id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json(notifications.map(mapNotificationToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -32,14 +54,28 @@ export const markNotificationAsRead = async (req, res) => {
   }
 
   try {
-    const notification = await Notification.findById(req.params.id);
+    const { data: notification, error: findError } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (findError) throw findError;
     if (notification) {
-      if (notification.userId.toString() !== req.user._id.toString()) {
+      if (notification.user_id !== req.user._id) {
         return res.status(403).json({ message: 'Not authorized' });
       }
-      notification.readStatus = true;
-      const updated = await notification.save();
-      res.json(updated);
+      
+      const { data: updated, error: updateError } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', req.params.id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+      
+      res.json(mapNotificationToFrontend(updated));
     } else {
       res.status(404).json({ message: 'Notification not found' });
     }
@@ -60,7 +96,13 @@ export const clearNotifications = async (req, res) => {
   }
 
   try {
-    await Notification.deleteMany({ userId: req.user._id });
+    const { error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', req.user._id);
+
+    if (error) throw error;
+    
     res.json({ message: 'Notifications cleared' });
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -13,7 +13,9 @@ import AdminDashboard from './pages/AdminDashboard';
 import VerifyEmail from './pages/VerifyEmail';
 import LiveChat from './components/LiveChat';
 import ProductCompare from './components/ProductCompare';
-import { GoogleOAuthProvider } from '@react-oauth/google';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import Profile from './pages/Profile';
 import { X, Bell, CheckCircle, Lock, ShoppingBag, Star, Shield } from 'lucide-react';
 import CategoryNav from './components/CategoryNav';
 
@@ -72,8 +74,11 @@ const AuthGate = ({ children }) => {
   const { token, authOpen, setAuthOpen } = useApp();
   const location = useLocation();
 
-  // Email verification link is the only public route
-  const isPublicRoute = location.pathname.startsWith('/verify-email');
+  // Email verification link, login, and signup are public routes
+  const isPublicRoute = 
+    location.pathname.startsWith('/verify-email') || 
+    location.pathname.startsWith('/login') || 
+    location.pathname.startsWith('/signup');
 
   // Auto-open auth modal for guests on every non-public route
   useEffect(() => {
@@ -158,8 +163,11 @@ const MainLayout = () => {
   // When the auth modal is closed by a guest (e.g. clicking backdrop), re-open it
   const handleCloseAuth = () => {
     if (!token) {
-      // Don't allow guest to close — re-open immediately unless on verify-email
-      const isPublicRoute = location.pathname.startsWith('/verify-email');
+      // Don't allow guest to close — re-open immediately unless on public routes
+      const isPublicRoute = 
+        location.pathname.startsWith('/verify-email') || 
+        location.pathname.startsWith('/login') || 
+        location.pathname.startsWith('/signup');
       if (!isPublicRoute) return; // block close for guests
     }
     setAuthOpen(false);
@@ -200,6 +208,9 @@ const MainLayout = () => {
             <Route path="/checkout" element={<CheckoutForm />} />
             <Route path="/dashboard" element={user?.role === 'admin' ? <Navigate to="/admin-dashboard" replace /> : <Dashboard />} />
             <Route path="/account" element={user?.role === 'admin' ? <Navigate to="/admin-dashboard" replace /> : <Dashboard />} />
+            <Route path="/profile" element={user?.role === 'admin' ? <Navigate to="/admin-dashboard" replace /> : <Profile />} />
+            <Route path="/login" element={token ? <Navigate to="/" replace /> : <Login />} />
+            <Route path="/signup" element={token ? <Navigate to="/" replace /> : <Signup />} />
             <Route path="/verify-email/:token" element={<VerifyEmail />} />
           </Routes>
         </AuthGate>
@@ -217,13 +228,11 @@ const MainLayout = () => {
 
 function App() {
   return (
-    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id.apps.googleusercontent.com'}>
-      <AppProvider>
-        <Router>
-          <MainLayout />
-        </Router>
-      </AppProvider>
-    </GoogleOAuthProvider>
+    <AppProvider>
+      <Router>
+        <MainLayout />
+      </Router>
+    </AppProvider>
   );
 }
 

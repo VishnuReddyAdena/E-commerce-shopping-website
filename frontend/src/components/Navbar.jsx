@@ -1,26 +1,59 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { Search, ShoppingCart, Heart, LogOut, ShieldAlert, ChevronDown, Mic, Bell, Trash2, CheckCircle, Menu, X, User, Package, Tag, CreditCard, Globe } from 'lucide-react';
+import { useSelector, useDispatch } from 'react-redux';
+import { 
+  setKeyword, 
+  setSuggestions as setReduxSuggestions, 
+  setMatchingResults as setReduxMatchingResults, 
+  setHistory as setReduxHistory,
+  addHistoryItem, 
+  clearHistory as clearReduxHistory 
+} from '../store/searchSlice';
+import { setActiveTab as setReduxActiveTab } from '../store/notificationsSlice';
+import { setCurrency as setReduxCurrency, setCountry as setReduxCountry } from '../store/currencySlice';
+import { 
+  Search, ShoppingCart, Heart, LogOut, ShieldAlert, ChevronDown, Mic, Bell, 
+  Trash2, CheckCircle, Menu, X, User, Package, Tag, CreditCard, Globe, 
+  Settings, HelpCircle, MapPin, Gift, Award, Flame, Sparkles, Info
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { categoriesData } from './CategoryNav';
 
 export const Navbar = ({ onOpenAuth, onOpenCart }) => {
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Redux Global Selectors
+  const user = useSelector(state => state.auth.user);
+  const token = useSelector(state => state.auth.token);
+  const wishlist = useSelector(state => state.wishlist.items);
+  const cart = useSelector(state => state.cart.items);
+  const dbNotifications = useSelector(state => state.notifications.items);
+  const activeNotificationTab = useSelector(state => state.notifications.activeTab);
+  const currency = useSelector(state => state.currency.currency);
+  const country = useSelector(state => state.currency.country);
+  const recentSearches = useSelector(state => state.search.history);
+  const matchingProducts = useSelector(state => state.search.matchingProducts);
+  const matchingCategories = useSelector(state => state.search.matchingCategories);
+  const matchingBrands = useSelector(state => state.search.matchingBrands);
+  const suggestions = useSelector(state => state.search.suggestions);
+  const deals = useSelector(state => state.deals.items);
+
   const {
-    user,
     logout,
-    wishlist,
-    cart,
     filters,
     setFilters,
-    dbNotifications,
     markNotificationRead,
     clearAllNotifications,
     backendUrl,
-    currency,
     setCurrency,
-    token,
-    setAuthOpen
+    setAuthOpen,
+    removeFromCart,
+    getSubtotal,
+    adminStore,
+    setAdminStore
   } = useApp();
 
   // Guard: redirect guests to sign-in modal
@@ -32,16 +65,63 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
     action();
   };
 
-  const navigate = useNavigate();
-  const [suggestions, setSuggestions] = useState([]);
+  // Search input ref & Escape / CTRL + K keyboard shortcuts
+  const searchInputRef = useRef(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === 'Escape') {
+        setShowSuggestions(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Keyboard navigation within suggestions
+  const [activeSuggestionIdx, setActiveSuggestionIdx] = useState(-1);
+
+  // Sync recent searches from LocalStorage to Redux on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('recent_searches');
+      if (saved) {
+        dispatch(setReduxHistory(JSON.parse(saved)));
+      } else {
+        dispatch(setReduxHistory(["iPhone 16", "iPhone Charger", "Mechanical Keyboard"]));
+      }
+    } catch {
+      dispatch(setReduxHistory(["iPhone 16", "iPhone Charger", "Mechanical Keyboard"]));
+    }
+  }, [dispatch]);
+
+  // Search States
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  
+  // Navigation Drops States
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [expandedMobileCatIdx, setExpandedMobileCatIdx] = useState(null);
-  
+
   const suggestionsRef = useRef(null);
   const notificationsRef = useRef(null);
+  const currencyRef = useRef(null);
+
+  const saveSearch = (term) => {
+    if (!term.trim()) return;
+    dispatch(addHistoryItem(term));
+  };
+
+  const clearRecentSearches = (e) => {
+    e.stopPropagation();
+    dispatch(clearReduxHistory());
+  };
 
   const handleSubcategoryClick = (categoryName, subcat) => {
     setFilters((prev) => ({
@@ -70,46 +150,94 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
       if (notificationsRef.current && !notificationsRef.current.contains(e.target)) {
         setShowNotifications(false);
       }
+      if (currencyRef.current && !currencyRef.current.contains(e.target)) {
+        setShowCurrencyDropdown(false);
+      }
     };
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  // Fetch search autocomplete suggestions
+  // Fetch search suggestions and matching products dynamically from backend API and populate Redux
   useEffect(() => {
-    const fetchSuggestions = async () => {
+    const fetchSuggestionsAndProducts = async () => {
       if (!filters.keyword.trim()) {
-        setSuggestions([]);
+        dispatch(setReduxSuggestions([]));
+        dispatch(setReduxMatchingResults({ products: [], categories: [], brands: [] }));
         return;
       }
       try {
-        const response = await fetch(`${backendUrl}/api/products/search/suggestions?keyword=${filters.keyword}`);
-        const data = await response.json();
-        if (response.ok) {
-          setSuggestions(data);
+        // 1. Suggestions
+        const sugRes = await fetch(`${backendUrl}/api/products/search/suggestions?keyword=${filters.keyword}`);
+        if (sugRes.ok) {
+          const sugData = await sugRes.json();
+          dispatch(setReduxSuggestions(sugData));
+        }
+
+        // 2. Full Products matching keyword for custom suggestion details
+        const prodRes = await fetch(`${backendUrl}/api/products?keyword=${filters.keyword}`);
+        if (prodRes.ok) {
+          const prodData = await prodRes.json();
+          const cats = Array.from(new Set(prodData.map(p => p.category)));
+          const brands = Array.from(new Set(prodData.map(p => p.brand)));
+          dispatch(setReduxMatchingResults({
+            products: prodData.slice(0, 5),
+            categories: cats,
+            brands: brands
+          }));
         }
       } catch (err) {
-        console.error(err);
+        console.error('Dynamic search fetch failed:', err);
       }
     };
 
     const delayDebounce = setTimeout(() => {
-      fetchSuggestions();
+      fetchSuggestionsAndProducts();
     }, 300);
 
     return () => clearTimeout(delayDebounce);
-  }, [filters.keyword, backendUrl]);
+  }, [filters.keyword, backendUrl, dispatch]);
 
   const handleSearchChange = (e) => {
-    setFilters((prev) => ({ ...prev, keyword: e.target.value }));
+    const val = e.target.value;
+    dispatch(setKeyword(val));
+    setFilters((prev) => ({ ...prev, keyword: val }));
     setShowSuggestions(true);
-    navigate('/shop');
+    setActiveSuggestionIdx(-1);
+  };
+
+  const handleInputKeyDown = (e) => {
+    const allSuggestions = [...recentSearches, ...suggestions.map(s => s.title)];
+    
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestionIdx(prev => Math.min(prev + 1, allSuggestions.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestionIdx(prev => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter') {
+      if (activeSuggestionIdx >= 0 && activeSuggestionIdx < allSuggestions.length) {
+        e.preventDefault();
+        const selected = allSuggestions[activeSuggestionIdx];
+        handleSuggestionClick(selected);
+      }
+    }
   };
 
   const handleSuggestionClick = (title) => {
     setFilters((prev) => ({ ...prev, keyword: title }));
+    saveSearch(title);
     setShowSuggestions(false);
     navigate('/shop');
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (filters.keyword.trim()) {
+      saveSearch(filters.keyword);
+      setShowSuggestions(false);
+      navigate('/shop');
+    }
   };
 
   // Voice Search via Web Speech API
@@ -131,6 +259,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
       setFilters((prev) => ({ ...prev, keyword: transcript }));
+      saveSearch(transcript);
       setIsListening(false);
       navigate('/shop');
     };
@@ -146,25 +275,92 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
     recognition.start();
   };
 
+  // Notification tab filtering logic
+  const getFilteredNotifications = () => {
+    if (activeNotificationTab === 'All') return dbNotifications;
+    const tabLower = activeNotificationTab.toLowerCase();
+    
+    return dbNotifications.filter(n => {
+      const title = (n.title || '').toLowerCase();
+      const message = (n.message || '').toLowerCase();
+      
+      if (tabLower === 'orders') {
+        return title.includes('order') || message.includes('order') || title.includes('delivery') || message.includes('delivery') || title.includes('ship') || message.includes('ship');
+      }
+      if (tabLower === 'offers') {
+        return title.includes('offer') || message.includes('offer') || title.includes('sale') || message.includes('sale') || title.includes('inventory') || message.includes('inventory') || title.includes('stock') || message.includes('stock');
+      }
+      if (tabLower === 'coupons') {
+        return title.includes('coupon') || message.includes('coupon') || title.includes('promo') || message.includes('promo') || title.includes('code') || message.includes('code');
+      }
+      if (tabLower === 'wishlist') {
+        return title.includes('wishlist') || message.includes('wishlist') || title.includes('favorite') || message.includes('favorite');
+      }
+      return true;
+    });
+  };
+
+  // Helper formatting for currency
+  const formatPrice = (priceUSD) => {
+    const numericPrice = Number(priceUSD) || 0;
+    if (currency === 'INR') {
+      const priceINR = Math.round(numericPrice * 83);
+      return `₹${priceINR.toLocaleString('en-IN')}`;
+    }
+    if (currency === 'EUR') {
+      const priceEUR = (numericPrice * 0.92).toFixed(2);
+      return `€${Number(priceEUR).toLocaleString('en-US')}`;
+    }
+    return `$${numericPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const changeCountryCurrency = (country, curr) => {
+    setCurrency(curr);
+    if (setAdminStore) {
+      setAdminStore(country);
+    }
+    setShowCurrencyDropdown(false);
+  };
+
+  const getCombinedSelectorLabel = () => {
+    if (currency === 'INR') return '🌐 India | ₹ INR';
+    if (currency === 'EUR') return '🌐 Europe | € EUR';
+    return '🌐 USA | $ USD';
+  };
+
   const cartItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const unreadNotificationsCount = dbNotifications.filter(n => !n.readStatus).length;
 
+  // Cart total subtotal calculation
+  const getSubtotalValue = () => {
+    return cart.reduce((acc, item) => acc + (item.productId?.price || 0) * item.quantity, 0);
+  };
+
   return (
     <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200/55 sticky top-0 z-40 w-full shadow-sm">
-      <div className="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between gap-6">
+      <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-6">
         
         {/* Left Side: Mobile Hamburger & Logo */}
         <div className="flex items-center gap-3 flex-shrink-0">
           {/* Hamburger Trigger */}
           <button
             onClick={() => setMobileMenuOpen(true)}
-            className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-650 md:hidden transition-colors"
+            className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-655 md:hidden transition-colors"
             title="Menu"
           >
             <Menu className="w-5 h-5" />
           </button>
 
-          <Link to="/" className="flex items-center gap-2 group">
+          <Link 
+            to="/" 
+            onClick={(e) => {
+              if (location.pathname === '/') {
+                e.preventDefault();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }
+            }}
+            className="flex items-center gap-2 group cursor-pointer"
+          >
             <span className="bg-gradient-to-tr from-blue-650 to-indigo-650 text-white w-9 h-9 rounded-2xl flex items-center justify-center font-black text-lg shadow-md group-hover:scale-105 transition-all">
               N
             </span>
@@ -179,16 +375,18 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
           </Link>
         </div>
 
-        {/* Center: Advanced Smart Search with suggestions & voice */}
-        <div ref={suggestionsRef} className="flex-1 max-w-xl relative hidden md:block">
+        {/* Center: Large Search Bar (Highest Priority, 450px–600px width) */}
+        <form onSubmit={handleSearchSubmit} ref={suggestionsRef} className="flex-grow min-w-[450px] max-w-[600px] relative hidden md:block">
           <div
-            className="flex items-center bg-slate-100 rounded-2xl px-4 py-1.5 border border-transparent focus-within:border-blue-650 focus-within:bg-white focus-within:shadow-md transition-all w-full"
+            className="flex items-center bg-slate-100 rounded-2xl px-4 py-2 border border-transparent focus-within:border-blue-650 focus-within:bg-white focus-within:shadow-md transition-all w-full"
             onClick={() => { if (!token) { setAuthOpen(true); } }}
           >
-            <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+            <Search className="w-4 h-4 text-slate-455 flex-shrink-0" />
             <input
               type="text"
-              placeholder="Fuzzy search collections, category, tags..."
+              ref={searchInputRef}
+              onKeyDown={handleInputKeyDown}
+              placeholder="🔍 Search for products, brands and categories..."
               value={filters.keyword}
               onChange={token ? handleSearchChange : (e) => { e.preventDefault(); setAuthOpen(true); }}
               onFocus={() => { if (!token) { setAuthOpen(true); return; } setShowSuggestions(true); }}
@@ -197,203 +395,401 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
             />
             {/* Voice search button */}
             <button
+              type="button"
               onClick={startVoiceSearch}
               className={`p-1.5 rounded-xl hover:bg-slate-200/80 text-slate-500 hover:text-slate-800 transition-colors ${
-                isListening ? 'bg-red-100 text-red-650 hover:bg-red-200 animate-pulse' : ''
+                isListening ? 'bg-red-100 text-red-655 hover:bg-red-200 animate-pulse' : ''
               }`}
               title="Voice Search"
             >
-              <Mic className="w-3.5 h-3.5" />
+              🎤
             </button>
           </div>
 
           {/* Autocomplete Suggestions Panel */}
-          {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-200 shadow-2xl p-2.5 z-50">
-              <p className="text-[9px] uppercase tracking-wider font-bold text-slate-400 px-3 pb-1.5 border-b border-slate-100">
-                Recommended Suggestions
-              </p>
-              <div className="divide-y divide-slate-100 mt-1 max-h-60 overflow-y-auto">
-                {suggestions.map(s => (
+          {showSuggestions && token && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 z-50 text-left max-h-[480px] overflow-y-auto no-scrollbar">
+              
+              {/* AI Search Banner */}
+              <div 
+                onClick={() => {
+                  setFilters(prev => ({ ...prev, keyword: filters.keyword || "AI recommended smart choices" }));
+                  saveSearch(filters.keyword || "AI recommended smart choices");
+                  setShowSuggestions(false);
+                  navigate('/shop');
+                }}
+                className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl flex items-center justify-between cursor-pointer hover:border-blue-300 transition-all group"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-blue-600 animate-pulse" />
+                  <div>
+                    <h4 className="text-[11px] font-black text-blue-900 uppercase">Try AI Semantic Search</h4>
+                    <p className="text-[9px] text-blue-600 font-medium">Find products using descriptive natural language query</p>
+                  </div>
+                </div>
+                <ChevronDown className="w-4 h-4 text-blue-500 -rotate-90 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+
+              {/* If keyword is empty */}
+              {!filters.keyword.trim() ? (
+                <div className="space-y-4">
+                  {/* Recent Searches */}
+                  {recentSearches.length > 0 && (
+                    <div>
+                      <div className="flex justify-between items-center mb-1.5 px-1">
+                        <h4 className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">Recent Searches</h4>
+                        <button 
+                          type="button"
+                          onClick={clearRecentSearches}
+                          className="text-[9px] text-slate-450 hover:text-rose-600 font-bold hover:underline"
+                        >
+                          Clear History
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {recentSearches.map((term, index) => {
+                          const isHighlighted = activeSuggestionIdx === index;
+                          return (
+                            <button
+                              type="button"
+                              key={term}
+                              onClick={() => {
+                                setFilters(prev => ({ ...prev, keyword: term }));
+                                saveSearch(term);
+                                setShowSuggestions(false);
+                                navigate('/shop');
+                              }}
+                              className={`px-3 py-1 text-[10px] font-semibold rounded-lg transition-colors ${
+                                isHighlighted ? 'bg-blue-650 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-655'
+                              }`}
+                            >
+                              {term}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Trending Searches */}
+                  <div>
+                    <h4 className="text-[9px] uppercase tracking-wider font-extrabold text-slate-405 mb-1.5 px-1">Trending Products & Terms</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {["iPhone 16 Pro", "Mechanical Keyboard", "MacBook Pro M3", "AuraGlow Lighting Panel", "Calfskin Backpack"].map(term => (
+                        <button
+                          type="button"
+                          key={term}
+                          onClick={() => {
+                            setFilters(prev => ({ ...prev, keyword: term }));
+                            saveSearch(term);
+                            setShowSuggestions(false);
+                            navigate('/shop');
+                          }}
+                          className="px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700 text-[10px] font-semibold rounded-lg transition-colors border border-blue-100/50"
+                        >
+                          {term}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                // If typing a keyword
+                <div className="space-y-4">
+                  {/* Matching Products */}
+                  <div>
+                    <h4 className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mb-2 px-1">Products</h4>
+                    {matchingProducts.length === 0 ? (
+                      <p className="text-[10px] text-slate-505 italic pl-1">No products found matching "{filters.keyword}"</p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-1">
+                        {matchingProducts.map(p => (
+                          <div
+                            key={p._id}
+                            onClick={() => {
+                              saveSearch(filters.keyword);
+                              setShowSuggestions(false);
+                              navigate(`/product/${p._id}`);
+                            }}
+                            className="p-1.5 hover:bg-slate-50 rounded-xl flex items-center gap-3 cursor-pointer transition-colors border border-transparent hover:border-slate-100"
+                          >
+                            <img
+                              src={p.images?.[0] || 'https://images.unsplash.com/photo-1472851294608-062f824d296e?auto=format&fit=crop&w=150&q=80'}
+                              alt={p.title}
+                              className="w-8 h-8 object-cover rounded-lg border border-slate-100 flex-shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-slate-800 truncate">{p.title}</p>
+                              <p className="text-[10px] text-indigo-600 font-medium mt-0.5">{p.brand} • {p.category}</p>
+                            </div>
+                            <span className="text-xs font-extrabold text-slate-900">{formatPrice(p.price)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Matching Categories & Brands Grid */}
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                    {/* Categories column */}
+                    <div>
+                      <h4 className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mb-2 px-1">Categories</h4>
+                      {matchingProducts.length === 0 ? (
+                        <p className="text-[10px] text-slate-500 italic pl-1">None</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {Array.from(new Set(matchingProducts.map(p => p.category))).slice(0, 3).map(cat => (
+                            <button
+                              type="button"
+                              key={cat}
+                              onClick={() => {
+                                setFilters(prev => ({ ...prev, category: cat, keyword: '' }));
+                                saveSearch(filters.keyword);
+                                setShowSuggestions(false);
+                                navigate(`/shop?category=${encodeURIComponent(cat)}`);
+                              }}
+                              className="w-full text-left py-1 px-2.5 hover:bg-slate-50 text-[11px] font-bold text-slate-700 hover:text-blue-600 rounded-lg transition-colors truncate"
+                            >
+                              📁 {cat}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Brands column */}
+                    <div>
+                      <h4 className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mb-2 px-1">Brands</h4>
+                      {matchingProducts.length === 0 ? (
+                        <p className="text-[10px] text-slate-500 italic pl-1">None</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {Array.from(new Set(matchingProducts.map(p => p.brand))).slice(0, 3).map(brnd => (
+                            <button
+                              type="button"
+                              key={brnd}
+                              onClick={() => {
+                                setFilters(prev => ({ ...prev, brand: brnd, keyword: '' }));
+                                saveSearch(filters.keyword);
+                                setShowSuggestions(false);
+                                navigate(`/shop?brand=${encodeURIComponent(brnd)}`);
+                              }}
+                              className="w-full text-left py-1 px-2.5 hover:bg-slate-50 text-[11px] font-bold text-slate-700 hover:text-blue-600 rounded-lg transition-colors truncate"
+                            >
+                              🏷️ {brnd}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Autocomplete Suggestions */}
+                  {suggestions.length > 0 && (
+                    <div className="pt-2 border-t border-slate-100">
+                      <h4 className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5 px-1">Search Suggestions</h4>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {suggestions.map((s, index) => {
+                          const globalIdx = recentSearches.length + index;
+                          const isHighlighted = activeSuggestionIdx === globalIdx;
+                          return (
+                            <button
+                              type="button"
+                              key={s._id}
+                              onClick={() => {
+                                setFilters(prev => ({ ...prev, keyword: s.title }));
+                                saveSearch(s.title);
+                                setShowSuggestions(false);
+                                navigate('/shop');
+                              }}
+                              className={`text-left py-1.5 px-2.5 rounded-lg transition-colors truncate border text-[10.5px] font-semibold ${
+                                isHighlighted 
+                                  ? 'bg-blue-650 text-white border-blue-650' 
+                                  : 'hover:bg-slate-50 text-slate-655 border-slate-100'
+                              }`}
+                            >
+                              🔍 {s.title}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </form>
+
+        {/* Right Side Actions: Navigation items and user accounts */}
+        <div className="flex items-center gap-6">
+          
+          {/* Deals Dropdown */}
+          <div className="relative group/deals hidden lg:block">
+            <button className="text-xs font-extrabold text-slate-655 hover:text-blue-650 transition-colors uppercase tracking-wider py-2 flex items-center gap-0.5 cursor-pointer whitespace-nowrap">
+              <span>Deals 🔥</span>
+              <ChevronDown className="w-3.5 h-3.5 mt-0.5" />
+            </button>
+            <div className="absolute top-full left-0 pt-2 w-48 hidden group-hover/deals:block z-50">
+              <div className="bg-white text-slate-700 rounded-2xl shadow-2xl border border-slate-150 py-2.5">
+                {[
+                  { label: "Today's Deals", path: "/shop?tag=deal" },
+                  { label: "Flash Sale", path: "/shop?isFlashSale=true" },
+                  { label: "Clearance", path: "/shop?tag=clearance" },
+                  { label: "Coupons", path: "/dashboard?tab=coupons" },
+                  { label: "Best Sellers", path: "/shop?sortBy=rating" },
+                  { label: "Trending", path: "/shop?sortBy=trending" }
+                ].map(deal => (
                   <button
-                    key={s._id}
-                    onClick={() => handleSuggestionClick(s.title)}
-                    className="w-full text-left py-2 px-3 hover:bg-slate-50 text-xs font-semibold text-slate-700 flex justify-between items-center rounded-lg"
+                    type="button"
+                    key={deal.label}
+                    onClick={() => {
+                      if (deal.path.startsWith('/dashboard')) {
+                        requireAuth(() => navigate(deal.path));
+                      } else {
+                        navigate(deal.path);
+                      }
+                    }}
+                    className="w-full text-left px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
                   >
-                    <span>{s.title}</span>
-                    <span className="text-[9px] bg-slate-100 px-2 py-0.5 text-slate-450 font-bold rounded-lg uppercase">
-                      {s.category}
-                    </span>
+                    {deal.label}
                   </button>
                 ))}
               </div>
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* Right Side Actions */}
-        <div className="flex items-center gap-5">
-          {/* My Account with Dropdown */}
-          <div className="relative group/account">
+          {/* Combined Country/Currency Selector Dropdown */}
+          <div ref={currencyRef} className="relative hidden md:block">
             <button
-              onClick={() => {
-                if (user) {
-                  navigate('/dashboard?tab=dashboard');
-                } else {
-                  onOpenAuth();
-                }
-              }}
-              className="flex items-center gap-1 hover:text-blue-650 py-1 font-bold text-xs text-slate-700 transition-colors uppercase tracking-wider cursor-pointer"
+              onClick={() => setShowCurrencyDropdown(!showCurrencyDropdown)}
+              className="flex items-center gap-1.5 bg-slate-100/70 hover:bg-slate-100 hover:border-slate-300 py-1.5 px-3.5 rounded-full border border-slate-205 transition-all text-[11px] font-black text-slate-700 select-none cursor-pointer whitespace-nowrap"
             >
-              <span>My Account</span>
-              <ChevronDown className="w-3.5 h-3.5" />
+              <span>{getCombinedSelectorLabel()}</span>
+              <ChevronDown className="w-3 h-3 mt-0.5" />
             </button>
 
-            {/* Hover Dropdown */}
-            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-56 bg-white text-slate-700 rounded-2xl shadow-2xl border border-slate-100 py-3 hidden group-hover/account:block z-50 transition-all duration-200">
-              {user ? (
-                <div className="divide-y divide-slate-100/60">
-                  <div className="py-1">
-                    <Link
-                      to="/dashboard?tab=profile"
-                      className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                    >
-                      <User className="w-4 h-4 text-blue-650" />
-                      My Profile
-                    </Link>
-                    <Link
-                      to="/dashboard?tab=rewards"
-                      className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                    >
-                      <div className="w-4 h-4 rounded-full bg-blue-650 flex items-center justify-center text-[9px] font-black text-white">⚡</div>
-                      SuperCoin Zone
-                    </Link>
-                    <Link
-                      to="/dashboard?tab=subscriptions"
-                      className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                    >
-                      <span className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center text-[8px] font-black text-white">★</span>
-                      Flipkart Plus Zone
-                    </Link>
-                  </div>
-                  <div className="py-1">
-                    <Link
-                      to="/dashboard?tab=orders"
-                      className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                    >
-                      <Package className="w-4 h-4 text-blue-650" />
-                      Orders
-                    </Link>
-                    <Link
-                      to="/dashboard?tab=wishlist"
-                      className="flex items-center justify-between px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Heart className="w-4 h-4 text-blue-650" />
-                        <span>Wishlist</span>
-                      </div>
-                      {wishlist.length > 0 && (
-                        <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-extrabold text-slate-500">
-                          {wishlist.length}
-                        </span>
-                      )}
-                    </Link>
-                    <Link
-                      to="/dashboard?tab=coupons"
-                      className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                    >
-                      <Tag className="w-4 h-4 text-blue-650" />
-                      Coupons
-                    </Link>
-                    <Link
-                      to="/dashboard?tab=giftcards"
-                      className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                    >
-                      <CreditCard className="w-4 h-4 text-blue-650" />
-                      Gift Cards
-                    </Link>
-                    <Link
-                      to="/dashboard?tab=notifications"
-                      className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                    >
-                      <Bell className="w-4 h-4 text-blue-650" />
-                      Notifications
-                    </Link>
-                  </div>
-                </div>
-              ) : (
-                <div className="px-4 py-3 text-center space-y-2.5">
-                  <p className="text-[10px] text-slate-455 font-extrabold uppercase">New Customer?</p>
+            {showCurrencyDropdown && (
+              <div className="absolute top-full left-0 mt-2 w-48 bg-white text-slate-700 rounded-2xl shadow-2xl border border-slate-150 py-2 z-50">
+                {[
+                  { country: 'India', currency: 'INR', label: '🌐 India | ₹ INR' },
+                  { country: 'USA', currency: 'USD', label: '🌐 USA | $ USD' },
+                  { country: 'Europe', currency: 'Europe', label: '🌐 Europe | € EUR' }
+                ].map(opt => (
                   <button
-                    onClick={onOpenAuth}
-                    className="w-full bg-[#2874F0] hover:bg-[#1b62d1] text-white py-2 rounded-xl text-xs font-black shadow-sm transition-all uppercase tracking-wider text-center"
+                    type="button"
+                    key={opt.label}
+                    onClick={() => changeCountryCurrency(opt.country, opt.currency === 'Europe' ? 'EUR' : opt.currency)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-slate-55 text-xs font-bold transition-colors"
                   >
-                    Sign In
+                    {opt.label}
                   </button>
-                  <div className="border-t border-slate-100 pt-2.5">
-                    <button
-                      onClick={onOpenAuth}
-                      className="text-[10px] text-blue-650 font-bold hover:underline"
-                    >
-                      Register Now
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Become a Seller link */}
-          <Link to="/shop" className="text-xs font-extrabold text-slate-600 hover:text-blue-650 transition-colors uppercase tracking-wider hidden lg:block">
-            Shop Catalog
-          </Link>
-
-          {/* Country/Currency Selector */}
-          <div className="flex items-center gap-1.5 bg-slate-100/70 hover:bg-slate-100 hover:border-slate-300 py-1.5 px-3 rounded-full border border-slate-205 transition-all select-none">
-            <Globe className="w-3.5 h-3.5 text-slate-500" />
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="bg-transparent text-[11px] font-black text-slate-700 focus:outline-none cursor-pointer pr-1"
-            >
-              <option value="USD">USD ($)</option>
-              <option value="INR">INR (₹)</option>
-            </select>
-          </div>
-
-          {/* Wishlist Link */}
-          {/* Wishlist link — guests redirected to sign-in */}
+          {/* Wishlist Link with dynamic count */}
           <button
             onClick={() => requireAuth(() => navigate('/dashboard?tab=wishlist'))}
-            className="flex items-center gap-1.5 text-slate-600 hover:text-blue-650 relative py-1"
+            className="flex items-center gap-1.5 text-slate-655 hover:text-blue-650 relative py-1 transition-colors font-semibold text-xs animate-none whitespace-nowrap"
           >
             <Heart className="w-4.5 h-4.5" />
+            <span>Wishlist</span>
             {wishlist.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-amber-500 text-white font-extrabold text-[8px] w-4 h-4 rounded-full flex items-center justify-center border border-white">
+              <span className="bg-amber-500 text-white font-extrabold text-[8px] px-1.5 py-0.5 rounded-full">
                 {wishlist.length}
               </span>
             )}
           </button>
 
-          {/* Cart Trigger — guests redirected to sign-in */}
-          <button
-            onClick={() => requireAuth(() => onOpenCart())}
-            className="flex items-center gap-1.5 text-slate-600 hover:text-blue-650 relative py-1"
-          >
-            <ShoppingCart className="w-4.5 h-4.5" />
-            {cartItemsCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-blue-600 text-white font-extrabold text-[8px] w-4 h-4 rounded-full flex items-center justify-center border border-white animate-bounce">
-                {cartItemsCount}
-              </span>
-            )}
-          </button>
+          {/* Cart Trigger with Hover Mini Cart Preview */}
+          <div className="relative group/cart">
+            <button
+              onClick={() => requireAuth(() => onOpenCart())}
+              className="flex items-center gap-1.5 text-slate-655 hover:text-blue-650 relative py-1 transition-colors font-semibold text-xs cursor-pointer whitespace-nowrap"
+            >
+              <ShoppingCart className="w-4.5 h-4.5" />
+              <span>Cart</span>
+              {cartItemsCount > 0 && (
+                <span className="absolute -top-1 right-[-4px] bg-blue-600 text-white font-extrabold text-[8px] w-4 h-4 rounded-full flex items-center justify-center border border-white animate-bounce">
+                  {cartItemsCount}
+                </span>
+              )}
+            </button>
 
-          {/* Notification Bell with Dropdown */}
+            {/* Hover Mini Cart Preview Panel */}
+            <div className="absolute top-full right-0 pt-2 w-80 hidden group-hover/cart:block z-50 transition-all duration-205 cursor-default text-left">
+              <div className="bg-white text-slate-700 rounded-2xl shadow-2xl border border-slate-150 p-4">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-2">
+                  <h4 className="text-xs font-black uppercase text-slate-800">Mini Cart Preview</h4>
+                  <span className="text-[10px] text-slate-450 font-bold">{cartItemsCount} Items</span>
+                </div>
+                {cart.length === 0 ? (
+                  <div className="py-6 text-center text-xs font-semibold text-slate-450">
+                    Your shopping cart is empty
+                  </div>
+                ) : (
+                  <>
+                    <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto pr-1">
+                      {cart.map((item) => (
+                        <div key={item._id} className="py-2.5 flex items-center gap-3">
+                          <img 
+                            src={item.productId?.images?.[0] || 'https://images.unsplash.com/photo-1472851294608-062f824d296e?auto=format&fit=crop&w=150&q=80'} 
+                            alt={item.productId?.title} 
+                            className="w-10 h-10 object-cover rounded-lg border border-slate-100 flex-shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-bold text-slate-800 truncate">{item.productId?.title}</p>
+                            <p className="text-[10px] text-slate-505 font-medium mt-0.5">
+                              Qty: {item.quantity} × {formatPrice(item.productId?.price || 0)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeFromCart(item.productId?._id)}
+                            className="p-1 rounded-lg hover:bg-slate-100 text-rose-505 hover:text-rose-650 transition-colors"
+                            title="Remove item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="border-t border-slate-100 pt-3 mt-3 space-y-3">
+                      <div className="flex justify-between items-center text-xs font-black">
+                        <span className="text-slate-500">Subtotal:</span>
+                        <span className="text-slate-800">{formatPrice(getSubtotalValue())}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { onOpenCart(); }}
+                          className="flex-1 text-center py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-bold uppercase transition-colors"
+                        >
+                          View Cart
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { navigate('/checkout'); }}
+                          className="flex-1 text-center py-2 bg-[#2874F0] hover:bg-[#1963d2] text-white rounded-xl text-[10px] font-bold uppercase transition-colors shadow-md shadow-blue-500/10"
+                        >
+                          Checkout
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Notification Bell with Tabbed Dropdown */}
           {user && (
             <div ref={notificationsRef} className="relative">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="flex items-center text-slate-600 hover:text-blue-650 relative py-1"
+                className="flex items-center text-slate-655 hover:text-blue-650 relative py-1 transition-colors"
               >
                 <Bell className="w-4.5 h-4.5" />
                 {unreadNotificationsCount > 0 && (
@@ -402,8 +798,8 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
               </button>
 
               {showNotifications && (
-                <div className="absolute top-full right-0 mt-3 w-80 bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 z-50">
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-2.5 mb-2.5">
+                <div className="absolute top-full right-0 mt-3 w-80 bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 z-50 text-left">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-2.5">
                     <h4 className="text-xs font-black uppercase text-slate-800">Inbox Notification</h4>
                     {dbNotifications.length > 0 && (
                       <button
@@ -415,11 +811,42 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
                     )}
                   </div>
 
+                  {/* Tabbed Notification Headers */}
+                  <div className="flex border-b border-slate-100 mb-2 gap-1 overflow-x-auto no-scrollbar pb-1">
+                    {['All', 'Orders', 'Offers', 'Coupons', 'Wishlist'].map(tab => {
+                      const count = tab === 'All' ? dbNotifications.length : dbNotifications.filter(n => {
+                        const t = (n.title || '').toLowerCase();
+                        const m = (n.message || '').toLowerCase();
+                        if (tab === 'Orders') return t.includes('order') || m.includes('order') || t.includes('delivery') || m.includes('delivery') || t.includes('ship') || m.includes('ship');
+                        if (tab === 'Offers') return t.includes('offer') || m.includes('offer') || t.includes('sale') || m.includes('sale') || t.includes('inventory') || m.includes('inventory') || t.includes('stock') || m.includes('stock');
+                        if (tab === 'Coupons') return t.includes('coupon') || m.includes('coupon') || t.includes('promo') || m.includes('promo') || t.includes('code') || m.includes('code');
+                        if (tab === 'Wishlist') return t.includes('wishlist') || m.includes('wishlist') || t.includes('favorite') || m.includes('favorite');
+                        return false;
+                      }).length;
+                      
+                      return (
+                        <button
+                          type="button"
+                          key={tab}
+                          onClick={() => setActiveNotificationTab(tab)}
+                          className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-colors whitespace-nowrap ${
+                            activeNotificationTab === tab
+                              ? 'bg-blue-600 text-white'
+                              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                          }`}
+                        >
+                          {tab} {count > 0 && `(${count})`}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Tab filtered notifications list */}
                   <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto pr-1">
-                    {dbNotifications.length === 0 ? (
-                      <p className="text-[10px] text-slate-450 font-bold text-center py-6">Your inbox is empty</p>
+                    {getFilteredNotifications().length === 0 ? (
+                      <p className="text-[10px] text-slate-450 font-bold text-center py-6">No notifications in this category</p>
                     ) : (
-                      dbNotifications.map(n => (
+                      getFilteredNotifications().map(n => (
                         <div key={n._id} className={`py-2.5 flex items-start gap-3 ${n.readStatus ? 'opacity-60' : ''}`}>
                           <div className="flex-1">
                             <p className="text-[11px] font-bold text-slate-800">{n.title}</p>
@@ -443,77 +870,162 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
             </div>
           )}
 
-          {/* User Account Menu */}
+          {/* User Account Dropdown (👤 Hi Vishnu / Account ▼ style, far right) */}
           {user ? (
-            <div className="flex items-center gap-4 relative group cursor-pointer">
-              <div className="flex items-center gap-1 hover:text-blue-650 py-1 font-bold text-xs text-slate-700">
-                <span className="max-w-[100px] truncate">{user.name}</span>
-                <ChevronDown className="w-3.5 h-3.5 mt-0.5" />
+            <div className="flex items-center gap-4 relative group cursor-pointer animate-none">
+              <div className="flex items-center gap-2 hover:text-blue-650 py-1 font-bold text-xs text-slate-700 whitespace-nowrap">
+                {user.avatarUrl ? (
+                  <img 
+                    src={user.avatarUrl} 
+                    alt={user.name} 
+                    className="w-5 h-5 rounded-full object-cover border border-slate-200" 
+                  />
+                ) : (
+                  <User className="w-4 h-4 text-slate-500" />
+                )}
+                <div className="flex flex-col items-start leading-tight text-left">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                    {`Hi ${user.name.split(' ')[0]}`}
+                  </span>
+                  <span className="text-[11px] font-black uppercase tracking-wide flex items-center gap-0.5">
+                    Account <ChevronDown className="w-3 h-3 mt-0.5" />
+                  </span>
+                </div>
               </div>
               
-              {/* Dropdown Menu */}
-              <div className="absolute top-full right-0 mt-2 w-48 bg-white text-slate-700 rounded-2xl shadow-2xl border border-slate-150 py-2.5 hidden group-hover:block z-50">
-                {user.role === 'admin' && (
+              <div className="absolute top-full right-0 pt-2 w-52 hidden group-hover:block z-50">
+                <div className="bg-white text-slate-700 rounded-2xl shadow-2xl border border-slate-150 py-2.5">
+                  {user.role === 'admin' && (
+                    <Link
+                      to="/admin-dashboard"
+                      className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-extrabold text-amber-700 border-b border-slate-100 mb-1"
+                    >
+                      <ShieldAlert className="w-4 h-4" />
+                      Admin Panel
+                    </Link>
+                  )}
                   <Link
-                    to="/admin-dashboard"
-                    className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50 text-xs font-extrabold text-amber-700"
+                    to="/dashboard?tab=profile"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
                   >
-                    <ShieldAlert className="w-4 h-4" />
-                    Admin Panel
+                    <User className="w-4 h-4 text-blue-650" />
+                    My Profile
                   </Link>
-                )}
-                <Link
-                  to="/dashboard?tab=orders"
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                >
-                  My Orders
-                </Link>
-                <Link
-                  to="/dashboard?tab=wallet"
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                >
-                  Reward Wallet
-                </Link>
-                <Link
-                  to="/dashboard?tab=profile"
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                >
-                  Edit Profile
-                </Link>
-                <Link
-                  to="/dashboard?tab=tickets"
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
-                >
-                  Help Desk Tickets
-                </Link>
-                <button
-                  onClick={logout}
-                  className="w-full flex items-center gap-2 px-4 py-2 hover:bg-slate-50 text-xs text-rose-600 font-extrabold text-left border-t border-slate-100 mt-1 pt-2"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Logout
-                </button>
+                  <Link
+                    to="/dashboard?tab=orders"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <Package className="w-4 h-4 text-blue-655" />
+                    Orders
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=returns"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <Package className="w-4 h-4 text-amber-600" />
+                    Returns &amp; Refunds
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=wishlist"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <Heart className="w-4 h-4 text-rose-500" />
+                    Wishlist
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=addresses"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <MapPin className="w-4 h-4 text-blue-650" />
+                    Saved Addresses
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=coupons"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <Tag className="w-4 h-4 text-blue-655" />
+                    Coupons
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=giftcards"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <CreditCard className="w-4 h-4 text-blue-650" />
+                    Gift Cards
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=rewards"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <Award className="w-4 h-4 text-amber-500" />
+                    Rewards
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=notifications"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <Bell className="w-4 h-4 text-indigo-505" />
+                    Notifications
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=settings"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <Settings className="w-4 h-4 text-slate-500" />
+                    Settings
+                  </Link>
+                  <Link
+                    to="/dashboard?tab=support"
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs font-semibold"
+                  >
+                    <HelpCircle className="w-4 h-4 text-emerald-500" />
+                    Help
+                  </Link>
+                  <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-3 px-4 py-2 hover:bg-slate-50 text-xs text-rose-600 font-extrabold text-left border-t border-slate-100 mt-1 pt-2"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
-            <button
-              onClick={onOpenAuth}
-              className="bg-white hover:bg-slate-50 text-[#2874F0] border border-slate-200/85 px-5 py-2 rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all uppercase tracking-wider"
-            >
-              Sign In
-            </button>
+            <div className="flex items-center gap-4 relative group cursor-pointer animate-none">
+              <div 
+                onClick={onOpenAuth}
+                className="flex items-center gap-2 hover:text-blue-650 py-1 font-bold text-xs text-slate-700 whitespace-nowrap"
+              >
+                <User className="w-4 h-4 text-slate-500" />
+                <div className="flex flex-col items-start leading-tight text-left">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Hello</span>
+                  <span className="text-[11px] font-black uppercase tracking-wide flex items-center gap-0.5">
+                    Sign In <ChevronDown className="w-3 h-3 mt-0.5" />
+                  </span>
+                </div>
+              </div>
+              <div className="absolute top-full right-0 mt-2 w-48 bg-white text-slate-700 rounded-2xl shadow-2xl border border-slate-150 py-3 hidden group-hover:block z-50 text-center px-4">
+                <p className="text-[10px] text-slate-455 font-extrabold uppercase mb-2">New Customer?</p>
+                <button
+                  type="button"
+                  onClick={onOpenAuth}
+                  className="w-full bg-[#2874F0] hover:bg-[#1b62d1] text-white py-2 rounded-xl text-xs font-black shadow-sm transition-all uppercase tracking-wider text-center"
+                >
+                  Sign In
+                </button>
+                <div className="border-t border-slate-100 pt-2.5 mt-2.5">
+                  <button
+                    type="button"
+                    onClick={onOpenAuth}
+                    className="text-[10px] text-blue-655 font-bold hover:underline"
+                  >
+                    Register Now
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
-
-          {/* Returns & Orders — replaces Sign In when logged in */}
-          {user ? (
-            <Link
-              to="/dashboard?tab=orders"
-              className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-200/85 px-4 py-2 rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all hidden lg:flex flex-col items-center leading-tight"
-            >
-              <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Your</span>
-              <span className="text-[11px] font-black uppercase tracking-wide">Returns &amp; Orders</span>
-            </Link>
-          ) : null}
 
         </div>
 
@@ -550,7 +1062,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
                 </div>
                 <button
                   onClick={() => setMobileMenuOpen(false)}
-                  className="p-1 rounded-lg hover:bg-slate-200 text-slate-500"
+                  className="p-1 rounded-lg hover:bg-slate-200 text-slate-550"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -602,7 +1114,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
                     </div>
                   ) : (
                     <div className="flex flex-col gap-2 py-1">
-                      <p className="text-xs font-semibold text-slate-600 leading-normal">
+                      <p className="text-xs font-semibold text-slate-650 leading-normal">
                         Unlock discounts, checkout quickly & track order history!
                       </p>
                       <button
@@ -639,7 +1151,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
                               <IconComponent className="w-4 h-4 text-slate-500" />
                               <span>{cat.name}</span>
                             </div>
-                            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isExpanded ? 'rotate-180 text-blue-600' : ''}`} />
+                            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isExpanded ? 'rotate-180 text-blue-650' : ''}`} />
                           </button>
 
                           {/* Accordion Content */}
@@ -685,10 +1197,10 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
                 </div>
 
                 {/* 4. Wishlist & Cart Summary */}
-                <div className="pt-2 border-t border-slate-150 flex flex-col gap-2 text-xs font-bold text-slate-700">
+                <div className="pt-2 border-t border-slate-150 flex flex-col gap-2 text-xs font-bold text-slate-705">
                   <button
                     onClick={() => requireAuth(() => { setMobileMenuOpen(false); navigate('/dashboard?tab=wishlist'); })}
-                    className="flex justify-between items-center p-3.5 bg-white border border-slate-200/60 rounded-xl hover:bg-slate-50 text-left"
+                    className="flex justify-between items-center p-3.5 bg-white border border-slate-200/60 rounded-xl hover:bg-slate-55 text-left"
                   >
                     <span>My Wishlist</span>
                     <span className="bg-amber-500 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full">
@@ -698,7 +1210,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
 
                   <button
                     onClick={() => requireAuth(() => { setMobileMenuOpen(false); onOpenCart(); })}
-                    className="flex justify-between items-center p-3.5 bg-white border border-slate-200/60 rounded-xl hover:bg-slate-50 text-left"
+                    className="flex justify-between items-center p-3.5 bg-white border border-slate-200/60 rounded-xl hover:bg-slate-55 text-left"
                   >
                     <span>My Shopping Cart</span>
                     <span className="bg-blue-600 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full">

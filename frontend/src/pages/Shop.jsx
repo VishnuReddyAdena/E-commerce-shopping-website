@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import ProductCard from '../components/ProductCard';
 import { SlidersHorizontal, Grid, List, RefreshCw, Star } from 'lucide-react';
@@ -8,6 +9,11 @@ export const Shop = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+
+  const [searchParams] = useSearchParams();
+  const activeTag = searchParams.get('tag');
+  const activeFlash = searchParams.get('isFlashSale');
+  const activeSort = searchParams.get('sortBy');
 
   // Local filter states
   const [selectedCategory, setSelectedCategory] = useState(filters.category || '');
@@ -19,16 +25,72 @@ export const Shop = () => {
   const [isFlashSale, setIsFlashSale] = useState(filters.isFlashSale || false);
   const [sortBy, setSortBy] = useState(filters.sortBy || 'newest');
 
+  // Live countdown timer for deals
+  const [timeLeft, setTimeLeft] = useState('02:45:10');
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const parts = timeLeft.split(':').map(Number);
+      let sec = parts[2] - 1;
+      let min = parts[1];
+      let hr = parts[0];
+
+      if (sec < 0) {
+        sec = 59;
+        min -= 1;
+      }
+      if (min < 0) {
+        min = 59;
+        hr -= 1;
+      }
+      if (hr < 0) {
+        hr = 3;
+        min = 0;
+        sec = 0;
+      }
+
+      const format = (n) => String(n).padStart(2, '0');
+      setTimeLeft(`${format(hr)}:${format(min)}:${format(sec)}`);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timeLeft]);
+
+  // Synchronize URL parameters
+  useEffect(() => {
+    if (activeFlash === 'true') {
+      setIsFlashSale(true);
+    } else {
+      setIsFlashSale(false);
+    }
+    if (activeSort) {
+      setSortBy(activeSort);
+    }
+  }, [searchParams, activeFlash, activeSort]);
+
   // Trigger filters load from App Context
   useEffect(() => {
-    setSelectedCategory(filters.category);
-    setSelectedBrand(filters.brand);
+    setSelectedCategory(filters.category || '');
+    setSelectedBrand(filters.brand || '');
   }, [filters.category, filters.brand]);
 
   // Fetch products based on filters
   const fetchProducts = async () => {
     setLoading(true);
     try {
+      let url = `${backendUrl}/api/products`;
+      if (activeTag === 'deal') {
+        url = `${backendUrl}/api/deals/today`;
+      } else if (activeFlash === 'true' || isFlashSale) {
+        url = `${backendUrl}/api/deals/flash-sale`;
+      } else if (activeTag === 'clearance') {
+        url = `${backendUrl}/api/deals/clearance`;
+      } else if (activeSort === 'rating') {
+        url = `${backendUrl}/api/deals/best-sellers`;
+      } else if (activeSort === 'trending') {
+        url = `${backendUrl}/api/deals/trending`;
+      }
+
       const queryParams = new URLSearchParams();
       if (filters.keyword) queryParams.append('keyword', filters.keyword);
       if (selectedCategory) queryParams.append('category', selectedCategory);
@@ -37,10 +99,9 @@ export const Shop = () => {
       if (maxPrice) queryParams.append('maxPrice', maxPrice);
       if (selectedRating) queryParams.append('rating', selectedRating);
       if (inStock) queryParams.append('inStock', 'true');
-      if (isFlashSale) queryParams.append('isFlashSale', 'true');
       queryParams.append('sortBy', sortBy);
 
-      const response = await fetch(`${backendUrl}/api/products?${queryParams.toString()}`);
+      const response = await fetch(`${url}?${queryParams.toString()}`);
       const data = await response.json();
       if (response.ok) {
         setProducts(data);
@@ -54,7 +115,7 @@ export const Shop = () => {
 
   useEffect(() => {
     fetchProducts();
-  }, [filters.keyword, selectedCategory, selectedBrand, minPrice, maxPrice, selectedRating, inStock, isFlashSale, sortBy]);
+  }, [filters.keyword, selectedCategory, selectedBrand, minPrice, maxPrice, selectedRating, inStock, isFlashSale, sortBy, searchParams]);
 
   const handleClearFilters = () => {
     setSelectedCategory('');
@@ -80,8 +141,85 @@ export const Shop = () => {
     });
   };
 
+  const getBannerDetails = () => {
+    if (activeTag === 'deal') {
+      return {
+        title: "Today's Super Deals 🔥",
+        description: "Massive savings on premium electronics, fashion, and home utilities. New deals added every hour!",
+        bgColor: "from-rose-500 to-orange-500",
+        countdown: true
+      };
+    }
+    if (activeFlash === 'true' || isFlashSale) {
+      return {
+        title: "Flash Sale Countdown ⚡",
+        description: "Limited stock, lightning fast checkout! Grab top items before they vanish.",
+        bgColor: "from-blue-600 to-indigo-700",
+        countdown: true
+      };
+    }
+    if (activeTag === 'clearance') {
+      return {
+        title: "Clearance Sale & Last Chance 🏷️",
+        description: "End of season savings! Grab warehouse clearing discounts up to 80% Off.",
+        bgColor: "from-emerald-500 to-teal-600",
+        countdown: false
+      };
+    }
+    if (activeSort === 'rating') {
+      return {
+        title: "NexaCart Best Sellers 🏆",
+        description: "Explore the most purchased and highly reviewed products by NexaCart buyers.",
+        bgColor: "from-amber-500 to-orange-600",
+        countdown: false
+      };
+    }
+    if (activeSort === 'trending') {
+      return {
+        title: "Currently Trending Catalog 🚀",
+        description: "Most viewed, liked, and popular items shaping the season's style.",
+        bgColor: "from-purple-500 to-pink-600",
+        countdown: false
+      };
+    }
+    return null;
+  };
+
+  const bannerInfo = getBannerDetails();
+
   return (
     <div className="max-w-7xl mx-auto px-6 py-8 animate-fade-in">
+      {/* Breadcrumbs */}
+      <div className="text-[10px] font-black uppercase text-slate-400 mb-4 flex items-center gap-1.5 tracking-wider">
+        <Link to="/" className="hover:text-blue-650 transition-colors">Home</Link>
+        <span>/</span>
+        <Link to="/shop" className="hover:text-blue-650 transition-colors">Shop</Link>
+        {bannerInfo && (
+          <>
+            <span>/</span>
+            <span className="text-slate-700">{bannerInfo.title.replace(/[^\w\s']/g, '').trim()}</span>
+          </>
+        )}
+      </div>
+
+      {/* Dynamic Deals Banner */}
+      {bannerInfo && (
+        <div className={`mb-8 p-6 rounded-[24px] bg-gradient-to-r ${bannerInfo.bgColor} text-white shadow-md relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4`}>
+          <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none transform translate-y-1/4 translate-x-1/4">
+            <SlidersHorizontal className="w-64 h-64" />
+          </div>
+          <div className="space-y-1.5 relative z-10 max-w-xl">
+            <h1 className="text-xl sm:text-2xl font-black tracking-wide">{bannerInfo.title}</h1>
+            <p className="text-xs font-semibold text-white/80 leading-relaxed">{bannerInfo.description}</p>
+          </div>
+          {bannerInfo.countdown && (
+            <div className="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-2.5 rounded-2xl flex flex-col items-center md:items-end flex-shrink-0 relative z-10">
+              <span className="text-[9px] font-black uppercase tracking-widest text-white/80">Offer Ends In</span>
+              <span className="font-mono text-lg font-black tracking-widest mt-0.5">{timeLeft}</span>
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex flex-col md:flex-row gap-8">
         
         {/* Filters Sidebar */}

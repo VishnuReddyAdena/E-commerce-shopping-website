@@ -1,5 +1,41 @@
-import Cart from '../models/Cart.js';
+import { supabase } from '../config/supabase.js';
 import { memoryCarts, memoryProducts } from '../config/memoryStore.js';
+
+// Helper to populate product details in cart items
+const populateCartItems = async (items) => {
+  if (!items || items.length === 0) return [];
+  const productIds = items.map(item => item.productId).filter(Boolean);
+  
+  if (productIds.length === 0) return [];
+
+  const { data: products, error } = await supabase
+    .from('products')
+    .select('*')
+    .in('id', productIds);
+
+  if (error || !products) return [];
+
+  return items.map(item => {
+    const prod = products.find(p => p.id === item.productId);
+    return {
+      _id: item.productId,
+      productId: prod ? {
+        _id: prod.id,
+        id: prod.id,
+        title: prod.title,
+        price: Number(prod.price) || 0,
+        images: prod.images || [],
+        inventoryCount: prod.inventory_count || 0,
+        category: prod.category,
+        ratings: {
+          average: Number(prod.rating_average) || 0,
+          count: prod.rating_count || 0
+        }
+      } : null,
+      quantity: item.quantity
+    };
+  });
+};
 
 // @desc    Get current user's cart
 // @route   GET /api/cart
@@ -24,16 +60,32 @@ export const getCart = async (req, res) => {
   }
 
   try {
-    let cart = await Cart.findOne({ userId: req.user._id }).populate({
-      path: 'items.productId',
-      select: 'title price images inventoryCount category ratings'
-    });
+    let { data: cart, error } = await supabase
+      .from('carts')
+      .select('*')
+      .eq('user_id', req.user._id)
+      .maybeSingle();
+
+    if (error) throw error;
 
     if (!cart) {
-      cart = await Cart.create({ userId: req.user._id, items: [] });
+      const { data: newCart, error: createError } = await supabase
+        .from('carts')
+        .insert({ user_id: req.user._id, items: [] })
+        .select()
+        .single();
+      if (createError) throw createError;
+      cart = newCart;
     }
 
-    res.json(cart);
+    const populatedItems = await populateCartItems(cart.items);
+
+    res.json({
+      _id: cart.id,
+      userId: cart.user_id,
+      items: populatedItems,
+      updatedAt: cart.updated_at
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -64,25 +116,27 @@ export const updateCart = async (req, res) => {
   }
 
   try {
-    let cart = await Cart.findOne({ userId: req.user._id });
-
-    if (!cart) {
-      cart = new Cart({ userId: req.user._id });
-    }
-
-    cart.items = items.map(item => ({
+    const cartItems = items.map(item => ({
       productId: item.productId,
       quantity: item.quantity
     }));
 
-    await cart.save();
+    const { data: cart, error } = await supabase
+      .from('carts')
+      .upsert({ user_id: req.user._id, items: cartItems }, { onConflict: 'user_id' })
+      .select()
+      .single();
 
-    const populatedCart = await Cart.findById(cart._id).populate({
-      path: 'items.productId',
-      select: 'title price images inventoryCount category ratings'
+    if (error) throw error;
+
+    const populatedItems = await populateCartItems(cart.items);
+
+    res.json({
+      _id: cart.id,
+      userId: cart.user_id,
+      items: populatedItems,
+      updatedAt: cart.updated_at
     });
-
-    res.json(populatedCart);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -100,11 +154,12 @@ export const clearCart = async (req, res) => {
   }
 
   try {
-    let cart = await Cart.findOne({ userId: req.user._id });
-    if (cart) {
-      cart.items = [];
-      await cart.save();
-    }
+    const { error } = await supabase
+      .from('carts')
+      .update({ items: [] })
+      .eq('user_id', req.user._id);
+
+    if (error) throw error;
     res.json({ message: 'Cart cleared' });
   } catch (error) {
     res.status(500).json({ message: error.message });

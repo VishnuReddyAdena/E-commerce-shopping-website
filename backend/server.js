@@ -17,6 +17,8 @@ import brandRoutes from './routes/brands.js';
 import couponRoutes from './routes/coupons.js';
 import ticketRoutes from './routes/tickets.js';
 import notificationRoutes from './routes/notifications.js';
+import navigationRoutes from './routes/navigation.js';
+import { protect } from './middleware/auth.js';
 
 dotenv.config();
 
@@ -76,6 +78,120 @@ app.use('/api/brands', brandRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api', navigationRoutes);
+
+// Custom Premium E-Commerce Navigation Endpoints
+app.get('/api/currency', (req, res) => {
+  res.json([
+    { country: 'India', currency: 'INR', symbol: '₹', exchangeRate: 83, shippingFee: 80, taxRate: 0.18, estDelivery: '2-4 Days' },
+    { country: 'USA', currency: 'USD', symbol: '$', exchangeRate: 1, shippingFee: 5, taxRate: 0.08, estDelivery: '3-5 Days' },
+    { country: 'Europe', currency: 'Europe', symbol: '€', exchangeRate: 0.92, shippingFee: 6, taxRate: 0.12, estDelivery: '4-7 Days' }
+  ]);
+});
+
+app.get('/api/deals', (req, res) => {
+  res.json([
+    { label: "Today's Deals", path: "/shop?tag=deal", badge: 'HOT' },
+    { label: "Flash Sale", path: "/shop?isFlashSale=true", badge: 'SALE' },
+    { label: "Clearance", path: "/shop?tag=clearance", badge: '90% OFF' },
+    { label: "Coupons", path: "/dashboard?tab=coupons", badge: 'COUPON' },
+    { label: "Best Sellers", path: "/shop?sortBy=rating", badge: 'BEST' },
+    { label: "Trending", path: "/shop?sortBy=trending", badge: 'NEW' }
+  ]);
+});
+
+app.get('/api/search', async (req, res) => {
+  const { keyword } = req.query;
+  if (!keyword) return res.json([]);
+  if (!global.isDbConnected) {
+    const { memoryProducts } = await import('./config/memoryStore.js');
+    const kw = keyword.toLowerCase();
+    const results = memoryProducts.filter(p => 
+      p.title.toLowerCase().includes(kw) || 
+      p.description.toLowerCase().includes(kw) ||
+      p.category.toLowerCase().includes(kw) ||
+      p.brand.toLowerCase().includes(kw)
+    );
+    return res.json(results);
+  }
+  try {
+    const { supabase } = await import('./config/supabase.js');
+    const { data: results, error } = await supabase
+      .from('products')
+      .select('*')
+      .or(`title.ilike.%${keyword}%,description.ilike.%${keyword}%,category.ilike.%${keyword}%,brand.ilike.%${keyword}%`)
+      .limit(20);
+    if (error) throw error;
+    
+    res.json(results.map(prod => ({
+      _id: prod.id,
+      id: prod.id,
+      title: prod.title,
+      description: prod.description,
+      price: Number(prod.price) || 0,
+      category: prod.category,
+      brand: prod.brand || 'Generic',
+      images: prod.images || [],
+      ratings: {
+        average: Number(prod.rating_average) || 0,
+        count: prod.rating_count || 0
+      }
+    })));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/wishlist', protect, async (req, res) => {
+  if (!global.isDbConnected) {
+    const { memoryProducts } = await import('./config/memoryStore.js');
+    const wishListItems = memoryProducts.filter(p => req.user.wishlist.includes(p._id));
+    return res.json(wishListItems);
+  }
+  try {
+    const { supabase } = await import('./config/supabase.js');
+    const { data: userProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('wishlist')
+      .eq('id', req.user._id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    const wishlistIds = userProfile.wishlist || [];
+    if (wishlistIds.length === 0) {
+      return res.json([]);
+    }
+
+    const { data: products, error: prodError } = await supabase
+      .from('products')
+      .select('*')
+      .in('id', wishlistIds);
+
+    if (prodError) throw prodError;
+
+    res.json(products.map(prod => ({
+      _id: prod.id,
+      id: prod.id,
+      title: prod.title,
+      description: prod.description,
+      price: Number(prod.price) || 0,
+      category: prod.category,
+      brand: prod.brand || 'Generic',
+      images: prod.images || [],
+      ratings: {
+        average: Number(prod.rating_average) || 0,
+        count: prod.rating_count || 0
+      }
+    })));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/user/profile', protect, (req, res) => {
+  res.json(req.user);
+});
 
 // Simple root healthcheck
 app.get('/health', (req, res) => {

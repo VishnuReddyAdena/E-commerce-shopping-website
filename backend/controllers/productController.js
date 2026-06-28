@@ -1,27 +1,66 @@
-import Product from '../models/Product.js';
+import { supabase } from '../config/supabase.js';
 import { memoryProducts } from '../config/memoryStore.js';
+import { realtimeService } from '../services/supabase.service.js';
 
-// Helper to emit stock alerts if needed
-const checkAndEmitInventory = (req, product) => {
+// Map Postgres row to frontend structure
+const mapProductToFrontend = (prod) => {
+  if (!prod) return null;
+  return {
+    _id: prod.id,
+    id: prod.id,
+    title: prod.title,
+    description: prod.description,
+    price: Number(prod.price) || 0,
+    category: prod.category,
+    subCategory: prod.sub_category,
+    images: prod.images || [],
+    videos: prod.videos || [],
+    inventoryCount: prod.inventory_count || 0,
+    ratings: {
+      average: Number(prod.rating_average) || 0,
+      count: prod.rating_count || 0
+    },
+    reviews: prod.reviews || [],
+    brand: prod.brand || 'Generic',
+    colors: prod.colors || [],
+    sizes: prod.sizes || [],
+    specifications: prod.specifications || {},
+    variants: prod.variants || [],
+    isFlashSale: prod.is_flash_sale || false,
+    flashSalePrice: prod.flash_sale_price ? Number(prod.flash_sale_price) : undefined,
+    createdAt: prod.created_at,
+    updatedAt: prod.updated_at
+  };
+};
+
+const checkAndEmitInventory = async (req, product) => {
   const io = req.app.get('socketio');
+  const mapped = mapProductToFrontend(product);
+  
   if (io) {
     io.emit('inventoryUpdate', {
-      productId: product._id,
-      title: product.title,
-      inventoryCount: product.inventoryCount
+      productId: mapped.id,
+      title: mapped.title,
+      inventoryCount: mapped.inventoryCount
     });
-    if (product.inventoryCount <= 5 && product.inventoryCount > 0) {
-      io.emit('inventoryLow', {
-        productId: product._id,
-        title: product.title,
-        inventoryCount: product.inventoryCount
-      });
-    } else if (product.inventoryCount === 0) {
-      io.emit('inventoryOutOfStock', {
-        productId: product._id,
-        title: product.title
+  }
+
+  try {
+    await realtimeService.broadcastEvent('e-commerce-realtime', 'inventoryUpdate', {
+      productId: mapped.id,
+      title: mapped.title,
+      inventoryCount: mapped.inventoryCount
+    });
+
+    if (mapped.inventoryCount <= 5) {
+      await realtimeService.broadcastEvent('e-commerce-notifications', 'lowStock', {
+        productId: mapped.id,
+        title: mapped.title,
+        inventoryCount: mapped.inventoryCount
       });
     }
+  } catch (err) {
+    console.error('Supabase Realtime broadcast failed:', err.message);
   }
 };
 
@@ -66,7 +105,6 @@ export const getProducts = async (req, res) => {
       list = list.filter(p => p.isFlashSale === true);
     }
 
-    // Sort
     if (sortBy === 'price-asc') {
       list.sort((a, b) => a.price - b.price);
     } else if (sortBy === 'price-desc') {
@@ -76,7 +114,6 @@ export const getProducts = async (req, res) => {
     } else if (sortBy === 'popular') {
       list.sort((a, b) => (b.ratings?.count || 0) - (a.ratings?.count || 0));
     } else {
-      // Newest (Default)
       list.reverse();
     }
 
@@ -84,39 +121,55 @@ export const getProducts = async (req, res) => {
   }
 
   try {
-    let query = {};
+    let q = supabase.from('products').select('*');
+
     if (keyword) {
-      const escapedKeyword = keyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-      query.$or = [
-        { title: { $regex: escapedKeyword, $options: 'i' } },
-        { description: { $regex: escapedKeyword, $options: 'i' } },
-        { category: { $regex: escapedKeyword, $options: 'i' } },
-        { brand: { $regex: escapedKeyword, $options: 'i' } },
-        { subCategory: { $regex: escapedKeyword, $options: 'i' } }
-      ];
+      q = q.or(`title.ilike.%${keyword}%,description.ilike.%${keyword}%,category.ilike.%${keyword}%,brand.ilike.%${keyword}%,sub_category.ilike.%${keyword}%`);
     }
-    if (category) query.category = category;
-    if (brand) query.brand = brand;
-    if (minPrice || maxPrice) {
-      query.price = {};
-      if (minPrice) query.price.$gte = Number(minPrice);
-      if (maxPrice) query.price.$lte = Number(maxPrice);
+    if (category) {
+      q = q.eq('category', category);
     }
-    if (rating) query['ratings.average'] = { $gte: Number(rating) };
-    if (inStock === 'true') query.inventoryCount = { $gt: 0 };
-    if (colors) query.colors = { $in: colors.split(',') };
-    if (sizes) query.sizes = { $in: sizes.split(',') };
-    if (isFlashSale === 'true') query.isFlashSale = true;
+    if (brand) {
+      q = q.eq('brand', brand);
+    }
+    if (minPrice) {
+      q = q.gte('price', Number(minPrice));
+    }
+    if (maxPrice) {
+      q = q.lte('price', Number(maxPrice));
+    }
+    if (rating) {
+      q = q.gte('rating_average', Number(rating));
+    }
+    if (inStock === 'true') {
+      q = q.gt('inventory_count', 0);
+    }
+    if (isFlashSale === 'true') {
+      q = q.eq('is_flash_sale', true);
+    }
+    if (colors) {
+      q = q.overlaps('colors', colors.split(','));
+    }
+    if (sizes) {
+      q = q.overlaps('sizes', sizes.split(','));
+    }
 
-    let sortOptions = {};
-    if (sortBy === 'price-asc') sortOptions.price = 1;
-    else if (sortBy === 'price-desc') sortOptions.price = -1;
-    else if (sortBy === 'rating') sortOptions['ratings.average'] = -1;
-    else if (sortBy === 'popular') sortOptions['ratings.count'] = -1;
-    else sortOptions.createdAt = -1;
+    if (sortBy === 'price-asc') {
+      q = q.order('price', { ascending: true });
+    } else if (sortBy === 'price-desc') {
+      q = q.order('price', { ascending: false });
+    } else if (sortBy === 'rating') {
+      q = q.order('rating_average', { ascending: false });
+    } else if (sortBy === 'popular') {
+      q = q.order('rating_count', { ascending: false });
+    } else {
+      q = q.order('created_at', { ascending: false });
+    }
 
-    const products = await Product.find(query).sort(sortOptions);
-    res.json(products);
+    const { data: products, error } = await q;
+    if (error) throw error;
+
+    res.json(products.map(mapProductToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -133,9 +186,16 @@ export const getProductById = async (req, res) => {
   }
 
   try {
-    const product = await Product.findById(req.params.id);
+    const { data: product, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (error) throw error;
+
     if (product) {
-      res.json(product);
+      res.json(mapProductToFrontend(product));
     } else {
       res.status(404).json({ message: 'Product not found' });
     }
@@ -144,7 +204,7 @@ export const getProductById = async (req, res) => {
   }
 };
 
-// @desc    Get recommendations ("You May Also Like")
+// @desc    Get recommendations
 // @route   GET /api/products/:id/recommendations
 // @access  Public
 export const getProductRecommendations = async (req, res) => {
@@ -156,19 +216,28 @@ export const getProductRecommendations = async (req, res) => {
   }
 
   try {
-    const product = await Product.findById(req.params.id);
+    const { data: product, error: firstErr } = await supabase
+      .from('products')
+      .select('id, category')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (firstErr) throw firstErr;
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    const recommendations = await Product.find({
-      category: product.category,
-      _id: { $ne: product._id }
-    })
-      .sort({ 'ratings.average': -1 })
+    const { data: recommendations, error: secondErr } = await supabase
+      .from('products')
+      .select('*')
+      .eq('category', product.category)
+      .neq('id', product.id)
+      .order('rating_average', { ascending: false })
       .limit(4);
 
-    res.json(recommendations);
+    if (secondErr) throw secondErr;
+
+    res.json(recommendations.map(mapProductToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -201,21 +270,26 @@ export const createProduct = async (req, res) => {
   }
 
   try {
-    const product = new Product({
-      title,
-      description,
-      price,
-      category,
-      brand,
-      images: images || ['/placeholder.jpg'],
-      inventoryCount,
-      isFlashSale,
-      flashSalePrice
-    });
+    const { data: createdProduct, error } = await supabase
+      .from('products')
+      .insert({
+        title,
+        description,
+        price: Number(price),
+        category,
+        brand: brand || 'Generic',
+        images: images || ['/placeholder.jpg'],
+        inventory_count: Number(inventoryCount) || 0,
+        is_flash_sale: isFlashSale || false,
+        flash_sale_price: flashSalePrice ? Number(flashSalePrice) : null
+      })
+      .select()
+      .single();
 
-    const createdProduct = await product.save();
+    if (error) throw error;
+
     checkAndEmitInventory(req, createdProduct);
-    res.status(201).json(createdProduct);
+    res.status(201).json(mapProductToFrontend(createdProduct));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -246,22 +320,29 @@ export const updateProduct = async (req, res) => {
   }
 
   try {
-    const product = await Product.findById(req.params.id);
+    const updateData = {};
+    if (title) updateData.title = title;
+    if (description) updateData.description = description;
+    if (price !== undefined) updateData.price = Number(price);
+    if (category) updateData.category = category;
+    if (images) updateData.images = images;
+    if (inventoryCount !== undefined) updateData.inventory_count = Number(inventoryCount);
+    if (brand) updateData.brand = brand;
+    if (isFlashSale !== undefined) updateData.is_flash_sale = isFlashSale;
+    if (flashSalePrice !== undefined) updateData.flash_sale_price = flashSalePrice ? Number(flashSalePrice) : null;
 
-    if (product) {
-      product.title = title || product.title;
-      product.description = description || product.description;
-      product.price = price !== undefined ? price : product.price;
-      product.category = category || product.category;
-      product.brand = brand || product.brand;
-      product.images = images || product.images;
-      product.inventoryCount = inventoryCount !== undefined ? inventoryCount : product.inventoryCount;
-      product.isFlashSale = isFlashSale !== undefined ? isFlashSale : product.isFlashSale;
-      product.flashSalePrice = flashSalePrice !== undefined ? flashSalePrice : product.flashSalePrice;
+    const { data: updatedProduct, error } = await supabase
+      .from('products')
+      .update(updateData)
+      .eq('id', req.params.id)
+      .select()
+      .single();
 
-      const updatedProduct = await product.save();
+    if (error) throw error;
+
+    if (updatedProduct) {
       checkAndEmitInventory(req, updatedProduct);
-      res.json(updatedProduct);
+      res.json(mapProductToFrontend(updatedProduct));
     } else {
       res.status(404).json({ message: 'Product not found' });
     }
@@ -284,14 +365,13 @@ export const deleteProduct = async (req, res) => {
   }
 
   try {
-    const product = await Product.findById(req.params.id);
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', req.params.id);
 
-    if (product) {
-      await product.deleteOne();
-      res.json({ message: 'Product removed' });
-    } else {
-      res.status(404).json({ message: 'Product not found' });
-    }
+    if (error) throw error;
+    res.json({ message: 'Product removed' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -331,32 +411,49 @@ export const createProductReview = async (req, res) => {
   }
 
   try {
-    const product = await Product.findById(req.params.id);
+    const { data: product, error: findError } = await supabase
+      .from('products')
+      .select('reviews, rating_average, rating_count')
+      .eq('id', req.params.id)
+      .maybeSingle();
 
-    if (product) {
-      const alreadyReviewed = product.reviews.find(
-        (r) => r.userId.toString() === req.user._id.toString()
-      );
-
-      if (alreadyReviewed) {
-        return res.status(400).json({ message: 'Product already reviewed by this user' });
-      }
-
-      const review = {
-        userId: req.user._id,
-        userName: req.user.name,
-        rating: Number(rating),
-        comment
-      };
-
-      product.reviews.push(review);
-      product.calculateRatings();
-
-      await product.save();
-      res.status(201).json({ message: 'Review added' });
-    } else {
-      res.status(404).json({ message: 'Product not found' });
+    if (findError) throw findError;
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
     }
+
+    const reviews = product.reviews || [];
+    const alreadyReviewed = reviews.find(
+      (r) => r.userId === req.user._id
+    );
+
+    if (alreadyReviewed) {
+      return res.status(400).json({ message: 'Product already reviewed by this user' });
+    }
+
+    const review = {
+      userId: req.user._id,
+      userName: req.user.name,
+      rating: Number(rating),
+      comment,
+      createdAt: new Date().toISOString()
+    };
+
+    reviews.push(review);
+    
+    // Calculate new averages
+    const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
+    const rating_average = Math.round((sum / reviews.length) * 10) / 10;
+    const rating_count = reviews.length;
+
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({ reviews, rating_average, rating_count })
+      .eq('id', req.params.id);
+
+    if (updateError) throw updateError;
+
+    res.status(201).json({ message: 'Review added' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -380,11 +477,21 @@ export const getSearchSuggestions = async (req, res) => {
     if (!keyword) {
       return res.json([]);
     }
-    const products = await Product.find({
-      title: { $regex: keyword, $options: 'i' }
-    }).select('title category').limit(8);
 
-    res.json(products);
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('id, title, category')
+      .ilike('title', `%${keyword}%`)
+      .limit(8);
+
+    if (error) throw error;
+
+    res.json(products.map(p => ({
+      _id: p.id,
+      id: p.id,
+      title: p.title,
+      category: p.category
+    })));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -402,28 +509,34 @@ export const getFrequentlyBoughtTogether = async (req, res) => {
   }
 
   try {
-    const product = await Product.findById(req.params.id);
+    const { data: product, error: findError } = await supabase
+      .from('products')
+      .select('id, category')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (findError) throw findError;
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    const matches = await Product.find({
-      _id: { $ne: product._id },
-      $or: [
-        { category: product.category },
-        { category: 'Accessories' }
-      ]
-    })
-      .sort({ 'ratings.average': -1 })
+    const { data: matches, error } = await supabase
+      .from('products')
+      .select('*')
+      .neq('id', product.id)
+      .or(`category.eq."${product.category}",category.eq."Accessories"`)
+      .order('rating_average', { ascending: false })
       .limit(3);
 
-    res.json(matches);
+    if (error) throw error;
+
+    res.json(matches.map(mapProductToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Get Personalized Recommendations based on User history/wishlist
+// @desc    Get Personalized Recommendations
 // @route   GET /api/products/user/personalized
 // @access  Private/Optional
 export const getPersonalizedRecommendations = async (req, res) => {
@@ -436,21 +549,29 @@ export const getPersonalizedRecommendations = async (req, res) => {
     if (req.user) {
       const user = req.user;
       if (user.wishlist && user.wishlist.length > 0) {
-        const wishlistProducts = await Product.find({ _id: { $in: user.wishlist } });
-        categories = wishlistProducts.map(p => p.category);
+        const { data: wishlistProducts, error } = await supabase
+          .from('products')
+          .select('category')
+          .in('id', user.wishlist);
+        if (!error && wishlistProducts) {
+          categories = wishlistProducts.map(p => p.category);
+        }
       }
     }
 
-    let query = {};
+    let q = supabase.from('products').select('*');
     if (categories.length > 0) {
-      query.category = { $in: categories };
+      q = q.in('category', categories);
     }
 
-    const recommendations = await Product.find(query)
-      .sort({ 'ratings.average': -1, 'ratings.count': -1 })
+    const { data: recommendations, error } = await q
+      .order('rating_average', { ascending: false })
+      .order('rating_count', { ascending: false })
       .limit(6);
 
-    res.json(recommendations);
+    if (error) throw error;
+
+    res.json(recommendations.map(mapProductToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

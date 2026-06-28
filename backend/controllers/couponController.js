@@ -1,5 +1,22 @@
-import Coupon from '../models/Coupon.js';
+import { supabase } from '../config/supabase.js';
 import { memoryCoupons } from '../config/memoryStore.js';
+
+// Map Postgres row to Mongoose structure
+const mapCouponToFrontend = (coup) => {
+  if (!coup) return null;
+  return {
+    _id: coup.id,
+    id: coup.id,
+    code: coup.code,
+    discountType: coup.type,
+    discountValue: Number(coup.value) || 0,
+    isActive: coup.is_active !== undefined ? coup.is_active : true,
+    expiryDate: coup.expiry_date,
+    usageLimit: coup.usage_limit || 9999,
+    usedCount: coup.used_count || 0,
+    createdAt: coup.created_at
+  };
+};
 
 // @desc    Get all coupons (Admin)
 // @route   GET /api/coupons
@@ -9,8 +26,13 @@ export const getCoupons = async (req, res) => {
     return res.json(memoryCoupons);
   }
   try {
-    const coupons = await Coupon.find({});
-    res.json(coupons);
+    const { data: coupons, error } = await supabase
+      .from('coupons')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(coupons.map(mapCouponToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -41,21 +63,30 @@ export const createCoupon = async (req, res) => {
   }
 
   try {
-    const couponExists = await Coupon.findOne({ code: code.toUpperCase() });
+    const { data: couponExists } = await supabase
+      .from('coupons')
+      .select('*')
+      .eq('code', code.toUpperCase())
+      .maybeSingle();
+
     if (couponExists) {
       return res.status(400).json({ message: 'Coupon code already exists' });
     }
 
-    const coupon = new Coupon({
-      code: code.toUpperCase(),
-      discountType,
-      discountValue,
-      expiryDate,
-      usageLimit
-    });
+    const { data: createdCoupon, error } = await supabase
+      .from('coupons')
+      .insert({
+        code: code.toUpperCase(),
+        type: discountType,
+        value: Number(discountValue),
+        expiry_date: expiryDate
+      })
+      .select()
+      .single();
 
-    const createdCoupon = await coupon.save();
-    res.status(201).json(createdCoupon);
+    if (error) throw error;
+
+    res.status(201).json(mapCouponToFrontend(createdCoupon));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -75,13 +106,13 @@ export const deleteCoupon = async (req, res) => {
   }
 
   try {
-    const coupon = await Coupon.findById(req.params.id);
-    if (coupon) {
-      await coupon.deleteOne();
-      res.json({ message: 'Coupon removed' });
-    } else {
-      res.status(404).json({ message: 'Coupon not found' });
-    }
+    const { error } = await supabase
+      .from('coupons')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) throw error;
+    res.json({ message: 'Coupon removed' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -116,24 +147,32 @@ export const validateCoupon = async (req, res) => {
       return res.status(400).json({ message: 'Coupon code is required' });
     }
 
-    const coupon = await Coupon.findOne({ code: code.toUpperCase() });
+    const { data: coupon, error } = await supabase
+      .from('coupons')
+      .select('*')
+      .eq('code', code.toUpperCase())
+      .maybeSingle();
+
+    if (error) throw error;
 
     if (!coupon) {
       return res.status(404).json({ message: 'Invalid coupon code' });
     }
 
-    if (new Date() > new Date(coupon.expiryDate)) {
+    if (new Date() > new Date(coupon.expiry_date)) {
       return res.status(400).json({ message: 'Coupon has expired' });
     }
 
-    if (coupon.usedCount >= coupon.usageLimit) {
+    const usedCount = coupon.used_count || 0;
+    const usageLimit = coupon.usage_limit || 9999;
+    if (usedCount >= usageLimit) {
       return res.status(400).json({ message: 'Coupon usage limit has been reached' });
     }
 
     res.json({
       code: coupon.code,
-      discountType: coupon.discountType,
-      discountValue: coupon.discountValue
+      discountType: coupon.type,
+      discountValue: Number(coupon.value)
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

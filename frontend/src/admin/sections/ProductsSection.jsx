@@ -5,6 +5,7 @@ import { useApp } from '../../context/AppContext';
 import AdminModal from '../components/AdminModal';
 import EmptyState from '../components/EmptyState';
 import { TableRowSkeleton } from '../components/SkeletonLoader';
+import { storageService } from '../../services/storage';
 
 function StockBadge({ count }) {
   if (count <= 0) return <span className="text-[9px] font-semibold text-rose-600 bg-rose-50 border border-rose-100 rounded-full px-2 py-0.5">Out of Stock</span>;
@@ -42,6 +43,23 @@ export default function ProductsSection() {
   const [viewName, setViewName] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
+  const [uploadingIndex, setUploadingIndex] = useState(null);
+
+  const handleUploadImage = async (e, i) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingIndex(i);
+    try {
+      const { url } = await storageService.uploadToSupabase(file, 'products', 'product-images');
+      updateImage(i, url);
+      addNotification('Image uploaded successfully to Supabase Storage!', 'success');
+    } catch (err) {
+      console.error(err);
+      addNotification('Upload failed. Check bucket settings.', 'error');
+    } finally {
+      setUploadingIndex(null);
+    }
+  };
 
   useEffect(() => {
     setCurrentPage(1);
@@ -503,7 +521,7 @@ export default function ProductsSection() {
               </div>
             )}
 
-            {/* Image URL inputs */}
+            {/* Image URL inputs + Supabase File Uploader */}
             {form.images.map((img, i) => (
               <div key={i} className="flex items-center gap-2">
                 <input
@@ -513,9 +531,22 @@ export default function ProductsSection() {
                   onChange={e => updateImage(i, e.target.value)}
                   className="flex-1 px-3 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
                 />
+                
+                {/* Supabase Storage File Selector */}
+                <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2.5 rounded-xl border border-slate-200 transition-colors flex-shrink-0">
+                  {uploadingIndex === i ? 'Uploading...' : 'Upload'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={e => handleUploadImage(e, i)}
+                    className="hidden"
+                    disabled={uploadingIndex !== null}
+                  />
+                </label>
+
                 {form.images.length > 1 && (
                   <button onClick={() => removeImageField(i)}
-                    className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-rose-500 hover:bg-rose-50 transition-colors flex-shrink-0">
+                    className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-rose-500 hover:bg-rose-50 transition-colors flex-shrink-0">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -523,7 +554,7 @@ export default function ProductsSection() {
             ))}
             <button onClick={addImageField}
               className="flex items-center gap-1.5 text-[11px] font-medium text-blue-600 hover:text-blue-700 transition-colors">
-              <Plus className="w-3 h-3" /> Add Another Image URL
+              <Plus className="w-3 h-3" /> Add Another Image URL / Upload
             </button>
           </div>
 

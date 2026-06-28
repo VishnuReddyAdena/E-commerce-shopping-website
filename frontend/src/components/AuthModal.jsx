@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Mail, Lock, User, Key, Chrome, Github, Globe } from 'lucide-react';
-import { GoogleLogin } from '@react-oauth/google';
 
 const AuthModal = ({ isOpen, onClose }) => {
-  const { login, register, googleLogin, loading, error, addNotification, token } = useApp();
+  const { login, register, googleLogin, loading, error, setError, addNotification, token } = useApp();
   const isGuest = !token; // Guests cannot dismiss the modal
   const [isLoginTab, setIsLoginTab] = useState(true);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
@@ -59,7 +58,7 @@ const AuthModal = ({ isOpen, onClose }) => {
     addNotification(`Signing in with ${platform} (Simulated Social OAuth Flow)...`, 'info');
     setTimeout(() => {
       // Set mock user values based on social login
-      login('admin@glass-shop.com', 'admin123'); // seed logins or mock success
+      login('vishnubhai123@gmail.com', 'vishnu123@'); // seed logins or mock success
       onClose();
     }, 1500);
   };
@@ -239,20 +238,20 @@ const AuthModal = ({ isOpen, onClose }) => {
                 <div className="flex-grow border-t border-slate-300"></div>
               </div>
 
-              <div className="flex justify-center mt-4">
-                <GoogleLogin
-                  onSuccess={async (credentialResponse) => {
-                    const success = await googleLogin(credentialResponse.credential);
+              <div className="flex justify-center mt-4 w-full">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const success = await googleLogin();
                     if (success) onClose();
                   }}
-                  onError={() => {
-                    addNotification('Google Login Failed', 'error');
-                  }}
-                  useOneTap
-                  theme="outline"
-                  shape="rectangular"
-                  size="large"
-                />
+                  className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl py-3 text-xs font-bold text-slate-700 flex items-center justify-center gap-2.5 transition-all active:scale-[0.99]"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="#EA4335" d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.213-5.147 4.213-3.414 0-6.19-2.775-6.19-6.19 0-3.414 2.776-6.19 6.19-6.19 1.487 0 2.848.533 3.914 1.424l3.056-3.056C19.06 2.054 15.82 1 12.24 1 6.033 1 12.24s5.033 11.24 11.24 11.24c5.895 0 10.743-4.237 10.743-11.24 0-.687-.06-1.354-.183-1.954H12.24z"/>
+                  </svg>
+                  Continue with Google
+                </button>
               </div>
             </div>
 
@@ -260,7 +259,7 @@ const AuthModal = ({ isOpen, onClose }) => {
             {isLoginTab && (
               <div className="mt-6 p-3 rounded-xl bg-blue-50 bg-opacity-60 border border-blue-200 text-[11px] text-slate-700 font-medium">
                 <span className="font-bold text-blue-800">Quick Test Credentials:</span><br/>
-                • Admin: <code className="bg-slate-200 px-1 rounded select-all">admin@glass-shop.com</code> / <code className="bg-slate-200 px-1 rounded select-all">admin123</code>
+                • Admin: <code className="bg-slate-200 px-1 rounded select-all">vishnubhai123@gmail.com</code> / <code className="bg-slate-200 px-1 rounded select-all">vishnu123@</code>
               </div>
             )}
           </div>

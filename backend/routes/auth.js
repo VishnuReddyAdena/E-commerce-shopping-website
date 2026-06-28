@@ -2,7 +2,9 @@ import express from 'express';
 import {
   registerUser,
   loginUser,
+  syncUser,
   getUserProfile,
+  updateUserProfile,
   forgotPassword,
   resetPassword,
   googleAuth,
@@ -14,19 +16,23 @@ import {
   deleteUser,
   updateUserRole
 } from '../controllers/authController.js';
-import { protect, admin } from '../middleware/authMiddleware.js';
+import { protect, admin } from '../middleware/auth.js';
 
 const router = express.Router();
 
 router.post('/register', registerUser);
 router.post('/login', loginUser);
+router.post('/sync', syncUser);
 router.post('/google', googleAuth);
 router.post('/verify-email', verifyEmail);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 
 // Customer profile routes
-router.get('/profile', protect, getUserProfile);
+router.route('/profile')
+  .get(protect, getUserProfile)
+  .put(protect, updateUserProfile);
+  
 router.post('/addresses', protect, addShippingAddress);
 router.post('/wishlist', protect, toggleWishlist);
 

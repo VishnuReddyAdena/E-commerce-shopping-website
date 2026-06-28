@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { jsPDF } from 'jspdf';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSelector, useDispatch } from 'react-redux';
 import {
   LayoutDashboard,
   User,
@@ -39,7 +40,8 @@ import {
   CreditCard,
   Clock,
   Activity,
-  ShieldCheck
+  ShieldCheck,
+  Tag
 } from 'lucide-react';
 
 export const Dashboard = () => {
@@ -74,6 +76,7 @@ export const Dashboard = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'dashboard';
   const navigate = useNavigate();
+  const dbNotifications = useSelector(state => state.notifications.items);
 
   // Redirect to Home if not logged in
   useEffect(() => {
@@ -160,6 +163,127 @@ export const Dashboard = () => {
 
   // Wallet Recharge State
   const [rechargeAmount, setRechargeAmount] = useState('');
+
+  // Premium dynamic state loaders
+  const [profileData, setProfileData] = useState(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+
+  const [couponsData, setCouponsData] = useState({ available: [], used: [], expired: [] });
+  const [loadingCoupons, setLoadingCoupons] = useState(false);
+
+  const [giftCardsData, setGiftCardsData] = useState({ balance: 0, purchased: [], received: [] });
+  const [loadingGiftCards, setLoadingGiftCards] = useState(false);
+
+  const [rewardsData, setRewardsData] = useState({ points: 0, tier: 'Silver', history: [], achievements: [] });
+  const [loadingRewards, setLoadingRewards] = useState(false);
+
+  const [returnsData, setReturnsData] = useState([]);
+  const [loadingReturns, setLoadingReturns] = useState(false);
+
+  const [activeCouponTab, setActiveCouponTab] = useState('available'); // 'available' | 'used' | 'expired'
+  const [redeemCardCode, setRedeemCardCode] = useState('');
+  const [giftCardValue, setGiftCardValue] = useState('');
+  const [giftCardEmail, setGiftCardEmail] = useState('');
+
+  const fetchProfileData = async () => {
+    if (!token) return;
+    setLoadingProfile(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfileData(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  const fetchCoupons = async () => {
+    if (!token) return;
+    setLoadingCoupons(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/coupons`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCouponsData(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingCoupons(false);
+    }
+  };
+
+  const fetchGiftCards = async () => {
+    if (!token) return;
+    setLoadingGiftCards(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/giftcards`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGiftCardsData(data.giftCards);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingGiftCards(false);
+    }
+  };
+
+  const fetchRewards = async () => {
+    if (!token) return;
+    setLoadingRewards(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/rewards`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRewardsData(data.rewards);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingRewards(false);
+    }
+  };
+
+  const fetchReturns = async () => {
+    if (!token) return;
+    setLoadingReturns(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/returns`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setReturnsData(data.returns);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingReturns(false);
+    }
+  };
+
+  useEffect(() => {
+    if (token) {
+      if (activeTab === 'profile' || activeTab === 'dashboard') fetchProfileData();
+      if (activeTab === 'coupons') fetchCoupons();
+      if (activeTab === 'giftcards') fetchGiftCards();
+      if (activeTab === 'rewards') fetchRewards();
+      if (activeTab === 'returns') fetchReturns();
+    }
+  }, [token, activeTab]);
 
   // Fetch Orders & Wishlist Details
   const fetchMyOrders = async () => {
@@ -1568,33 +1692,76 @@ export const Dashboard = () => {
               {/* TAB: COUPONS */}
               {activeTab === 'coupons' && (
                 <div className="space-y-6">
-                  <h3 className="text-sm font-black text-slate-855 uppercase tracking-wider border-b border-slate-100 pb-3 flex items-center gap-2.5">
-                    <Tag className="w-4.5 h-4.5 text-blue-650" /> Coupons & Promo Codes
-                  </h3>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="border-2 border-dashed border-blue-200 rounded-2xl p-4 bg-blue-50/10 space-y-2 relative overflow-hidden">
-                      <span className="absolute -top-3 -right-3 w-10 h-10 bg-blue-50 rounded-full" />
-                      <span className="bg-blue-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-lg w-max block">ACTIVE</span>
-                      <h4 className="text-sm font-black text-slate-850">NEXA50</h4>
-                      <p className="text-xs font-semibold text-slate-500">Get 50% discount on all catalogs items in store.</p>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText('NEXA50');
-                          addNotification('Code NEXA50 copied to clipboard!', 'success');
-                        }}
-                        className="text-[9px] font-black uppercase text-blue-650 hover:underline pt-2 block"
-                      >
-                        Copy Code
-                      </button>
-                    </div>
-
-                    <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-2 relative opacity-60">
-                      <span className="bg-slate-500 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-lg w-max block">EXPIRED</span>
-                      <h4 className="text-sm font-black text-slate-700">FIRST100</h4>
-                      <p className="text-xs font-semibold text-slate-450">Get {formatPrice(100)} cashback off on first shop catalog purchase.</p>
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-3 flex-wrap gap-2">
+                    <h3 className="text-sm font-black text-slate-855 uppercase tracking-wider flex items-center gap-2.5">
+                      <Tag className="w-4.5 h-4.5 text-blue-650" /> Coupons & Promo Codes
+                    </h3>
+                    {/* Sub-tabs */}
+                    <div className="flex gap-1.5 text-[10px] font-black uppercase">
+                      {['available', 'used', 'expired'].map(t => (
+                        <button
+                          key={t}
+                          onClick={() => setActiveCouponTab(t)}
+                          className={`px-3 py-1.5 rounded-lg border transition-all ${
+                            activeCouponTab === t
+                              ? 'bg-blue-50 border-blue-200 text-blue-600'
+                              : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
                     </div>
                   </div>
+
+                  {loadingCoupons ? (
+                    <div className="py-8 flex justify-center">
+                      <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : (couponsData[activeCouponTab] || []).length === 0 ? (
+                    <div className="text-center py-10 bg-slate-50/50 border rounded-2xl text-xs font-semibold text-slate-400">
+                      No coupons found in this category.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {(couponsData[activeCouponTab] || []).map((coup, idx) => (
+                        <div
+                          key={idx}
+                          className={`border-2 border-dashed rounded-2xl p-4 bg-white space-y-2 relative overflow-hidden ${
+                            activeCouponTab === 'available'
+                              ? 'border-blue-200 hover:shadow-sm'
+                              : 'border-slate-200 opacity-60'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg ${
+                              activeCouponTab === 'available' ? 'bg-blue-600 text-white' : 'bg-slate-500 text-white'
+                            }`}>
+                              {activeCouponTab.toUpperCase()}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400">Min Order: {formatPrice(coup.minOrder)}</span>
+                          </div>
+                          <h4 className="text-sm font-black text-slate-850 tracking-wide">{coup.code}</h4>
+                          <p className="text-xs font-extrabold text-indigo-600">{coup.discount}</p>
+                          <p className="text-[11px] text-slate-500 leading-normal">{coup.details}</p>
+                          <p className="text-[9px] font-bold text-slate-400">Expires: {new Date(coup.expiry).toLocaleDateString()}</p>
+                          
+                          {activeCouponTab === 'available' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(coup.code);
+                                addNotification(`Coupon code ${coup.code} copied to clipboard!`, 'success');
+                              }}
+                              className="text-[9px] font-black uppercase text-blue-650 hover:underline pt-2.5 block text-left"
+                            >
+                              Copy Coupon Code
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1605,72 +1772,128 @@ export const Dashboard = () => {
                     <Award className="w-4.5 h-4.5 text-blue-650" /> Rewards & Loyalty Zone
                   </h3>
 
-                  <div className="p-6 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex flex-col justify-between h-36 shadow-lg relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-xl" />
-                    <div className="flex justify-between items-start">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-amber-100">Loyalty Points</span>
-                      <Award className="w-5 h-5 text-amber-200" />
+                  {loadingRewards ? (
+                    <div className="py-8 flex justify-center">
+                      <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
                     </div>
-                    <div>
-                      <p className="text-3xl font-black">{user?.loyaltyPoints || 0} PTS</p>
-                      <p className="text-[9px] font-bold text-amber-100 uppercase tracking-wider mt-1.5">Earned 10% on every checkout order</p>
-                    </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Loyalty points card */}
+                      <div className="p-6 rounded-3xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex flex-col justify-between h-36 shadow-lg relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-xl" />
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-100 block">Active Points</span>
+                            <span className="text-[9px] font-bold text-amber-205 mt-0.5 block">Membership Level: {rewardsData.tier}</span>
+                          </div>
+                          <Award className="w-6 h-6 text-amber-200" />
+                        </div>
+                        <div>
+                          <p className="text-3xl font-black">{rewardsData.points} PTS</p>
+                          <p className="text-[9px] font-bold text-amber-100 uppercase tracking-wider mt-1.5">Redeemable at Checkout payments</p>
+                        </div>
+                      </div>
 
-                  {/* Rewards FAQ */}
-                  <div className="space-y-3.5 border-t border-slate-100 pt-6">
-                    <h4 className="text-xs font-black uppercase text-slate-800">Loyalty Club Guidelines</h4>
-                    <div className="space-y-2 text-xs font-semibold text-slate-600 leading-relaxed">
-                      <p>• Earn **10 Points** for every {formatPrice(100)} spent in shop catalog transactions.</p>
-                      <p>• Redeem points during checkout payments slot where **1 Point = {formatPrice(0.10)}** cashback credit.</p>
-                      <p>• Loyalty tiers automatically unlock exclusive coupons like **NEXA50**.</p>
+                      {/* Point History & Achievements Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* History */}
+                        <div className="space-y-3">
+                          <h4 className="text-xs font-black uppercase text-slate-700 border-b pb-2">Points Ledger</h4>
+                          <div className="divide-y divide-slate-100 border border-slate-150 rounded-2xl overflow-hidden text-xs max-h-56 overflow-y-auto no-scrollbar">
+                            {(rewardsData.history || []).map((h, i) => (
+                              <div key={i} className="p-3 bg-white flex justify-between items-center">
+                                <div>
+                                  <p className="font-bold text-slate-800">{h.action}</p>
+                                  <p className="text-[9px] text-slate-400 mt-0.5">{new Date(h.date).toLocaleDateString()}</p>
+                                </div>
+                                <span className={`font-black ${h.type === 'earned' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                  {h.type === 'earned' ? '+' : '-'}{h.points} PTS
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Achievements */}
+                        <div className="space-y-3">
+                          <h4 className="text-xs font-black uppercase text-slate-700 border-b pb-2">Achievements & Badges</h4>
+                          <div className="grid grid-cols-2 gap-3">
+                            {(rewardsData.achievements || []).map((ac, idx) => (
+                              <div key={idx} className="p-3 border border-slate-150 bg-slate-50/20 rounded-xl text-center flex flex-col justify-center items-center">
+                                <span className="text-2xl mb-1">{ac.badge}</span>
+                                <h5 className="text-[10px] font-black text-slate-800 uppercase leading-none">{ac.title}</h5>
+                                <p className="text-[9px] text-slate-450 mt-1 leading-normal">{ac.desc}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
 
               {/* TAB: NOTIFICATIONS */}
               {activeTab === 'notifications' && (
                 <div className="space-y-6">
-                  <h3 className="text-sm font-black text-slate-855 uppercase tracking-wider border-b border-slate-100 pb-3 flex items-center gap-2.5">
-                    <Bell className="w-4.5 h-4.5 text-blue-650" /> Inbox Notifications Control
-                  </h3>
-
-                  {/* Preferences Toggles */}
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-black uppercase text-slate-855">Subscription Preferences</h4>
-                    <div className="space-y-3 text-xs font-semibold text-slate-750">
-                      <div className="flex justify-between items-center p-3 border border-slate-155 rounded-2xl">
-                        <div>
-                          <p className="font-bold text-slate-805">Email Notifications</p>
-                          <p className="text-[10px] text-slate-455">Receive tracking, checkout invoice PDFs, and newsletters.</p>
-                        </div>
-                        <input type="checkbox" defaultChecked className="rounded text-blue-655 w-4 h-4" />
-                      </div>
-                      <div className="flex justify-between items-center p-3 border border-slate-155 rounded-2xl">
-                        <div>
-                          <p className="font-bold text-slate-805">SMS Transaction Updates</p>
-                          <p className="text-[10px] text-slate-455">Receive verification OTPs and order tracking hub alerts.</p>
-                        </div>
-                        <input type="checkbox" defaultChecked className="rounded text-blue-655 w-4 h-4" />
-                      </div>
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-3 flex-wrap gap-2">
+                    <h3 className="text-sm font-black text-slate-855 uppercase tracking-wider flex items-center gap-2.5">
+                      <Bell className="w-4.5 h-4.5 text-blue-650" /> Inbox Notifications Control
+                    </h3>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={clearAllNotifications}
+                        className="text-[9px] bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 px-3 py-1.5 rounded-xl font-black uppercase"
+                      >
+                        Delete All
+                      </button>
                     </div>
                   </div>
-                </div>
-              )}
 
-              {/* TAB: REVIEWS */}
-              {activeTab === 'reviews' && (
-                <div className="space-y-6">
-                  <h3 className="text-sm font-black text-slate-855 uppercase tracking-wider border-b border-slate-100 pb-3 flex items-center gap-2.5">
-                    <Star className="w-4.5 h-4.5 text-blue-650" /> Product Reviews & Ratings
-                  </h3>
+                  {dbNotifications.length === 0 ? (
+                    <div className="text-center py-12 bg-slate-50/50 border border-slate-150 rounded-3xl space-y-2">
+                      <Bell className="w-8 h-8 text-slate-355 mx-auto" />
+                      <p className="text-xs font-black uppercase text-slate-400">Inbox is empty</p>
+                      <p className="text-[10px] text-slate-450">You will receive dynamic order statuses, price drops, and tracking alerts here.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1 no-scrollbar">
+                      {dbNotifications.map((notif) => (
+                        <div
+                          key={notif._id || notif.id}
+                          className={`p-4 border rounded-2xl flex justify-between items-start gap-4 transition-all ${
+                            notif.readStatus 
+                              ? 'bg-slate-50/40 border-slate-200/60 opacity-75' 
+                              : 'bg-white border-blue-150 shadow-sm ring-1 ring-blue-500/5'
+                          }`}
+                        >
+                          <div className="flex-1 text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-extrabold text-slate-800">{notif.title}</h4>
+                              {!notif.readStatus && (
+                                <span className="bg-blue-600 text-white text-[7px] font-black uppercase px-1.5 py-0.5 rounded-md tracking-wider">NEW</span>
+                              )}
+                            </div>
+                            <p className="text-slate-600 mt-1 font-semibold leading-relaxed">{notif.message}</p>
+                            <span className="text-[9px] text-slate-400 mt-2 block font-medium">
+                              {new Date(notif.createdAt || Date.now()).toLocaleString()}
+                            </span>
+                          </div>
 
-                  <div className="border border-slate-200 rounded-2xl p-5 text-center text-xs font-bold text-slate-400 bg-slate-50/50 py-10 space-y-2">
-                    <Star className="w-8 h-8 text-slate-355 mx-auto" />
-                    <p className="uppercase">No Reviewed Products Found</p>
-                    <p className="text-[10px] font-semibold text-slate-400">Products you purchase and rate in checkout orders will list here.</p>
-                  </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            {!notif.readStatus && (
+                              <button
+                                onClick={() => markNotificationRead(notif._id)}
+                                className="text-[9px] font-black uppercase text-blue-600 hover:underline"
+                              >
+                                Mark Read
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1681,11 +1904,93 @@ export const Dashboard = () => {
                     <RefreshCw className="w-4.5 h-4.5 text-blue-650" /> Returns & Refunds Timeline
                   </h3>
 
-                  <div className="border border-slate-200 rounded-2xl p-5 text-center text-xs font-bold text-slate-400 bg-slate-50/50 py-10 space-y-2">
-                    <RefreshCw className="w-8 h-8 text-slate-355 mx-auto" />
-                    <p className="uppercase">No Return Requests Raised</p>
-                    <p className="text-[10px] font-semibold text-slate-400">If you initiate returns for products from orders page, status tracking timeline resolves here.</p>
-                  </div>
+                  {loadingReturns ? (
+                    <div className="py-8 flex justify-center">
+                      <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : returnsData.length === 0 ? (
+                    <div className="border border-slate-200 rounded-3xl p-12 text-center text-xs font-bold text-slate-400 bg-slate-50/50 space-y-3">
+                      <RefreshCw className="w-8 h-8 text-slate-355 mx-auto" />
+                      <p className="uppercase">No Active Return Requests</p>
+                      <p className="text-[10px] font-semibold text-slate-400">If you wish to return a delivered item, go to the "My Orders" tab and select "Return / Help" on the specific order card.</p>
+                      <button
+                        onClick={() => handleTabChange('orders')}
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase px-5 py-2.5 rounded-xl shadow-md"
+                      >
+                        View My Orders
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {returnsData.map((ret, index) => (
+                        <div key={index} className="p-5 border border-slate-200 rounded-2xl bg-white space-y-4">
+                          <div className="flex justify-between items-center border-b pb-3 flex-wrap gap-2 text-xs font-semibold text-slate-500">
+                            <div>
+                              <span className="text-[9px] text-slate-400 uppercase block">Return ID</span>
+                              <span className="font-mono text-slate-800 font-bold select-all">#{ret._id}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 uppercase block">Refund Method</span>
+                              <span className="text-slate-800">{ret.refundMethod}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 uppercase block">Expected Refund</span>
+                              <span className="text-slate-800 font-black">{formatPrice(ret.refundAmount)}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 uppercase block">Status</span>
+                              <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase ${
+                                ret.status === 'Approved'
+                                  ? 'bg-green-50 text-green-700 border border-green-200'
+                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
+                              }`}>{ret.status}</span>
+                            </div>
+                          </div>
+
+                          <div className="text-xs">
+                            <p className="font-bold text-slate-700">Reason for return request: <span className="font-semibold text-slate-600 italic">"{ret.reason}"</span></p>
+                            <p className="font-bold text-slate-700 mt-1.5">Returned items: <span className="font-semibold text-slate-600">{ret.items?.map(i => `${i.title} (${i.quantity} Unit)`).join(', ')}</span></p>
+                          </div>
+
+                          {/* Tracking Steps timeline */}
+                          <div className="pt-2">
+                            <div className="relative pl-6 space-y-4 before:absolute before:left-[7px] before:top-1.5 before:bottom-1.5 before:w-[2px] before:bg-slate-200">
+                              <div className="relative">
+                                <span className="absolute -left-[23px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border border-white" />
+                                <p className="text-[11px] font-black text-slate-800 uppercase leading-none">Return Requested</p>
+                                <p className="text-[9.5px] text-slate-400 mt-0.5 font-semibold">Verification check in progress.</p>
+                              </div>
+                              <div className="relative">
+                                <span className={`absolute -left-[23px] top-1 w-2.5 h-2.5 rounded-full border border-white ${
+                                  ret.status === 'Approved' ? 'bg-emerald-500' : 'bg-slate-300'
+                                }`} />
+                                <p className={`text-[11px] font-black uppercase leading-none ${ret.status === 'Approved' ? 'text-slate-800' : 'text-slate-400'}`}>Approved & Refund Initiated</p>
+                                <p className="text-[9.5px] text-slate-400 mt-0.5 font-semibold">Refund values dispatched to {ret.refundMethod}.</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="pt-3 border-t flex justify-end gap-2 text-[10px] font-black uppercase">
+                            <button
+                              onClick={() => addNotification('Return details downloaded.', 'info')}
+                              className="px-3 py-1.5 border rounded-lg hover:bg-slate-50"
+                            >
+                              Download Receipt
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedTicket({ subject: `Help regarding Return #${ret._id}`, messages: [] });
+                                handleTabChange('support');
+                              }}
+                              className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border rounded-lg"
+                            >
+                              Contact Support
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1696,19 +2001,162 @@ export const Dashboard = () => {
                     <Gift className="w-4.5 h-4.5 text-blue-650" /> Gift Card Wallet
                   </h3>
 
-                  {/* Redeem Form */}
-                  <div className="border border-slate-200 rounded-2xl p-5 space-y-3.5 bg-slate-50/50">
-                    <h4 className="text-xs font-black uppercase text-slate-800">Redeem Gift Card Credit</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <input type="text" placeholder="16 Digit Card PIN" className="border rounded-xl py-2 px-3 text-xs w-full focus:outline-none" />
-                      <button
-                        onClick={() => addNotification('Gift card has been successfully added to balance slot.', 'success')}
-                        className="bg-blue-650 hover:bg-blue-755 text-white font-black text-[10px] uppercase py-2 px-6 rounded-xl transition-all"
-                      >
-                        Redeem Balance
-                      </button>
+                  {loadingGiftCards ? (
+                    <div className="py-8 flex justify-center">
+                      <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
                     </div>
-                  </div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                      
+                      {/* Left: Balance card, Redeem form & Buy form */}
+                      <div className="lg:col-span-2 space-y-6">
+                        
+                        {/* Balance display */}
+                        <div className="p-6 rounded-3xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex flex-col justify-between h-36 shadow-lg relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-xl" />
+                          <div className="flex justify-between items-start">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-100">Gift Card Balance</span>
+                            <Gift className="w-6 h-6 text-indigo-200" />
+                          </div>
+                          <div>
+                            <p className="text-3xl font-black">{formatPrice(giftCardsData.balance || 0)}</p>
+                            <p className="text-[9px] font-bold text-indigo-100 uppercase tracking-wider mt-1.5">Redeem card PINs to increase wallet balance</p>
+                          </div>
+                        </div>
+
+                        {/* Redeem form */}
+                        <div className="border border-slate-200 rounded-2xl p-5 space-y-3.5 bg-slate-50/50">
+                          <h4 className="text-xs font-black uppercase text-slate-800">Redeem Gift Card Voucher</h4>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Voucher Code (e.g. NEXAGIFT500)"
+                              value={redeemCardCode}
+                              onChange={(e) => setRedeemCardCode(e.target.value)}
+                              className="bg-white border rounded-xl py-2 px-3 text-xs w-full focus:outline-none"
+                            />
+                            <button
+                              onClick={async () => {
+                                if (!redeemCardCode) return;
+                                try {
+                                  const res = await fetch(`${backendUrl}/api/giftcards/redeem`, {
+                                    method: 'POST',
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                      Authorization: `Bearer ${token}`
+                                    },
+                                    body: JSON.stringify({ code: redeemCardCode })
+                                  });
+                                  const data = await res.json();
+                                  if (res.ok) {
+                                    addNotification(data.message, 'success');
+                                    setRedeemCardCode('');
+                                    fetchGiftCards();
+                                    fetchProfileData();
+                                  } else {
+                                    addNotification(data.message, 'error');
+                                  }
+                                } catch (err) {
+                                  console.error(err);
+                                }
+                              }}
+                              className="bg-blue-650 hover:bg-blue-755 text-white font-black text-[10px] uppercase px-5 py-2.5 rounded-xl flex-shrink-0"
+                            >
+                              Redeem Code
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Buy Form */}
+                        <div className="border border-slate-200 rounded-2xl p-5 space-y-3.5 bg-white">
+                          <h4 className="text-xs font-black uppercase text-slate-800">Purchase E-Gift Card</h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <input
+                              type="number"
+                              placeholder="Card Value (₹)"
+                              value={giftCardValue}
+                              onChange={(e) => setGiftCardValue(e.target.value)}
+                              className="border rounded-xl py-2 px-3 text-xs focus:outline-none"
+                            />
+                            <input
+                              type="email"
+                              placeholder="Recipient Email (optional)"
+                              value={giftCardEmail}
+                              onChange={(e) => setGiftCardEmail(e.target.value)}
+                              className="border rounded-xl py-2 px-3 text-xs focus:outline-none"
+                            />
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!giftCardValue || isNaN(giftCardValue)) {
+                                addNotification('Please enter a valid gift card amount', 'warning');
+                                return;
+                              }
+                              try {
+                                const res = await fetch(`${backendUrl}/api/giftcards/buy`, {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    Authorization: `Bearer ${token}`
+                                  },
+                                  body: JSON.stringify({ value: giftCardValue, email: giftCardEmail })
+                                });
+                                const data = await res.json();
+                                if (res.ok) {
+                                  addNotification(data.message, 'success');
+                                  setGiftCardValue('');
+                                  setGiftCardEmail('');
+                                  fetchGiftCards();
+                                }
+                              } catch (err) {
+                                console.error(err);
+                              }
+                            }}
+                            className="w-full bg-blue-650 hover:bg-blue-755 text-white font-black text-[10px] uppercase py-2.5 rounded-xl transition-all"
+                          >
+                            Purchase Gift Card
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Right: History ledger lists */}
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-black uppercase text-slate-700 border-b pb-2">Gift History Ledger</h4>
+                        
+                        <div className="divide-y divide-slate-100 border border-slate-150 rounded-2xl overflow-hidden text-xs max-h-72 overflow-y-auto no-scrollbar">
+                          {/* Purchased list */}
+                          {(giftCardsData.purchased || []).map((c, i) => (
+                            <div key={'p_' + i} className="p-3 bg-white space-y-1">
+                              <div className="flex justify-between items-center">
+                                <span className="font-mono font-bold text-slate-805">{c.code}</span>
+                                <span className="font-bold text-slate-800">{formatPrice(c.value)}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[9px] text-slate-400">
+                                <span>Sent To: {c.sentTo}</span>
+                                <span className={`px-1.5 py-0.5 rounded font-black uppercase ${
+                                  c.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                                }`}>{c.status}</span>
+                              </div>
+                            </div>
+                          ))}
+                          
+                          {/* Received list */}
+                          {(giftCardsData.received || []).map((c, i) => (
+                            <div key={'r_' + i} className="p-3 bg-slate-50/50 space-y-1">
+                              <div className="flex justify-between items-center">
+                                <span className="font-mono font-bold text-indigo-650">{c.code}</span>
+                                <span className="font-bold text-slate-800">{formatPrice(c.value)}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[9px] text-slate-400">
+                                <span>From: {c.sender}</span>
+                                <span className="bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase">{c.status}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

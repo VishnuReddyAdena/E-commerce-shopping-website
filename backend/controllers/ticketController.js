@@ -1,5 +1,26 @@
-import SupportTicket from '../models/SupportTicket.js';
-import { memoryTickets, memoryUsers } from '../config/memoryStore.js';
+import { supabase } from '../config/supabase.js';
+import { memoryTickets } from '../config/memoryStore.js';
+
+// Map Postgres row to Mongoose structure
+const mapTicketToFrontend = (t) => {
+  if (!t) return null;
+  return {
+    _id: t.id,
+    id: t.id,
+    userId: t.profiles ? {
+      _id: t.profiles.id,
+      id: t.profiles.id,
+      name: t.profiles.name,
+      email: t.profiles.email
+    } : t.user_id,
+    subject: t.subject,
+    description: t.message,
+    status: t.status,
+    messages: t.messages || [],
+    createdAt: t.created_at,
+    updatedAt: t.updated_at
+  };
+};
 
 // @desc    Create a support ticket
 // @route   POST /api/tickets
@@ -34,18 +55,24 @@ export const createTicket = async (req, res) => {
       return res.status(400).json({ message: 'Subject and description are required' });
     }
 
-    const ticket = new SupportTicket({
-      userId: req.user._id,
-      subject,
-      description,
-      messages: [{
-        sender: 'user',
-        text: description
-      }]
-    });
+    const { data: createdTicket, error } = await supabase
+      .from('support_tickets')
+      .insert({
+        user_id: req.user._id,
+        subject,
+        message: description,
+        messages: [{
+          sender: 'user',
+          text: description,
+          createdAt: new Date().toISOString()
+        }]
+      })
+      .select()
+      .single();
 
-    const createdTicket = await ticket.save();
-    res.status(201).json(createdTicket);
+    if (error) throw error;
+
+    res.status(201).json(mapTicketToFrontend(createdTicket));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -64,8 +91,15 @@ export const getMyTickets = async (req, res) => {
   }
 
   try {
-    const tickets = await SupportTicket.find({ userId: req.user._id }).sort({ createdAt: -1 });
-    res.json(tickets);
+    const { data: tickets, error } = await supabase
+      .from('support_tickets')
+      .select('*')
+      .eq('user_id', req.user._id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json(tickets.map(mapTicketToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -82,12 +116,19 @@ export const getTicketById = async (req, res) => {
   }
 
   try {
-    const ticket = await SupportTicket.findById(req.params.id);
+    const { data: ticket, error } = await supabase
+      .from('support_tickets')
+      .select('*, profiles:user_id(id, name, email)')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (error) throw error;
+
     if (ticket) {
-      if (ticket.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      if (ticket.user_id !== req.user._id && req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Not authorized to view this ticket' });
       }
-      res.json(ticket);
+      res.json(mapTicketToFrontend(ticket));
     } else {
       res.status(404).json({ message: 'Ticket not found' });
     }
@@ -118,7 +159,6 @@ export const replyToTicket = async (req, res) => {
         ticket.status = 'open';
       }
 
-      // Emit WebSocket update
       const io = req.app.get('socketio');
       if (io) {
         io.emit(`ticketUpdate_${ticket._id}`, ticket);
@@ -130,33 +170,51 @@ export const replyToTicket = async (req, res) => {
   }
 
   try {
-    const ticket = await SupportTicket.findById(req.params.id);
-    if (ticket) {
-      if (ticket.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Not authorized to reply to this ticket' });
-      }
+    const { data: ticket, error: findError } = await supabase
+      .from('support_tickets')
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
 
-      const sender = req.user.role === 'admin' ? 'agent' : 'user';
-      ticket.messages.push({
-        sender,
-        text
-      });
-
-      if (sender === 'user' && ticket.status === 'resolved') {
-        ticket.status = 'open';
-      }
-
-      const updatedTicket = await ticket.save();
-
-      const io = req.app.get('socketio');
-      if (io) {
-        io.emit(`ticketUpdate_${ticket._id}`, updatedTicket);
-      }
-
-      res.json(updatedTicket);
-    } else {
-      res.status(404).json({ message: 'Ticket not found' });
+    if (findError) throw findError;
+    if (!ticket) {
+      return res.status(404).json({ message: 'Ticket not found' });
     }
+
+    if (ticket.user_id !== req.user._id && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized to reply to this ticket' });
+    }
+
+    const sender = req.user.role === 'admin' ? 'agent' : 'user';
+    const messages = ticket.messages || [];
+    messages.push({
+      sender,
+      text,
+      createdAt: new Date().toISOString()
+    });
+
+    let finalStatus = ticket.status;
+    if (sender === 'user' && finalStatus === 'resolved') {
+      finalStatus = 'open';
+    }
+
+    const { data: updatedTicket, error: updateError } = await supabase
+      .from('support_tickets')
+      .update({ messages, status: finalStatus })
+      .eq('id', req.params.id)
+      .select('*, profiles:user_id(id, name, email)')
+      .single();
+
+    if (updateError) throw updateError;
+
+    const mapped = mapTicketToFrontend(updatedTicket);
+
+    const io = req.app.get('socketio');
+    if (io) {
+      io.emit(`ticketUpdate_${ticket.id}`, mapped);
+    }
+
+    res.json(mapped);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -171,8 +229,13 @@ export const getTickets = async (req, res) => {
   }
 
   try {
-    const tickets = await SupportTicket.find({}).populate('userId', 'id name email').sort({ createdAt: -1 });
-    res.json(tickets);
+    const { data: tickets, error } = await supabase
+      .from('support_tickets')
+      .select('*, profiles:user_id(id, name, email)')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(tickets.map(mapTicketToFrontend));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -194,11 +257,17 @@ export const updateTicketStatus = async (req, res) => {
   }
 
   try {
-    const ticket = await SupportTicket.findById(req.params.id);
-    if (ticket) {
-      ticket.status = status;
-      const updatedTicket = await ticket.save();
-      res.json(updatedTicket);
+    const { data: updatedTicket, error } = await supabase
+      .from('support_tickets')
+      .update({ status })
+      .eq('id', req.params.id)
+      .select('*, profiles:user_id(id, name, email)')
+      .single();
+
+    if (error) throw error;
+
+    if (updatedTicket) {
+      res.json(mapTicketToFrontend(updatedTicket));
     } else {
       res.status(404).json({ message: 'Ticket not found' });
     }
