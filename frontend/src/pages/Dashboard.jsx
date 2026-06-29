@@ -404,7 +404,7 @@ export const Dashboard = () => {
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(22);
       doc.setTextColor('#2874F0');
-      doc.text('NexaCart Store', 14, 20);
+      doc.text('Vyvora Store', 14, 20);
 
       doc.setFontSize(10);
       doc.setTextColor('#64748B');
@@ -474,7 +474,7 @@ export const Dashboard = () => {
       doc.setFont('Helvetica', 'italic');
       doc.setFontSize(9);
       doc.setTextColor('#64748B');
-      doc.text('Thank you for shopping with NexaCart! For support, visit the dashboard Help Desk.', 35, 275);
+      doc.text('Thank you for shopping with Vyvora! For support, visit the dashboard Help Desk.', 35, 275);
 
       doc.save(`invoice_${order._id.substring(0, 8)}.pdf`);
       addNotification('Invoice PDF downloaded.', 'success');
@@ -605,11 +605,11 @@ export const Dashboard = () => {
                   <div className="flex justify-between items-start flex-wrap gap-4 border-b border-slate-100 pb-5">
                     <div>
                       <h3 className="text-xl font-black text-slate-800">Hello, {user?.name || 'User'}!</h3>
-                      <p className="text-slate-500 text-xs font-semibold mt-1">Welcome to your personal NexaCart dashboard control center.</p>
+                      <p className="text-slate-500 text-xs font-semibold mt-1">Welcome to your personal Vyvora dashboard control center.</p>
                     </div>
                     <div className="bg-slate-50 border border-slate-200/50 rounded-2xl px-4 py-2 text-right">
                       <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Membership Status</span>
-                      <span className="text-xs font-black text-blue-650">NexaPlus Premium Elite</span>
+                      <span className="text-xs font-black text-blue-650">VyvoraPlus Premium Elite</span>
                     </div>
                   </div>
 

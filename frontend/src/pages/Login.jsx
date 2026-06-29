@@ -63,7 +63,7 @@ export default function Login() {
             <LogIn className="w-7 h-7 text-white" />
           </div>
           <h2 className="text-2xl font-extrabold text-white tracking-tight">
-            {isForgotPassword ? 'Reset Password' : 'Sign in to NexaCart'}
+            {isForgotPassword ? 'Reset Password' : 'Sign in to Vyvora'}
           </h2>
           <p className="text-slate-400 text-xs mt-1.5 text-center leading-relaxed">
             {isForgotPassword 
@@ -186,7 +186,7 @@ export default function Login() {
                 </button>
               ) : (
                 <>
-                  New to NexaCart?{' '}
+                  New to Vyvora?{' '}
                   <Link to="/signup" className="text-blue-400 hover:text-blue-300 underline pl-1">
                     Create free account
                   </Link>

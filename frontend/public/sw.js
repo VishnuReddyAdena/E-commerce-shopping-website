@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexacart-admin-cache-v1';
+const CACHE_NAME = 'vyvora-admin-cache-v1';
 const ASSETS_TO_CACHE = [
   '/',
   '/admin-dashboard',

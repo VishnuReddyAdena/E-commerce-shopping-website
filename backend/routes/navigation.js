@@ -250,9 +250,9 @@ router.delete('/wishlist/:productId', protect, async (req, res) => {
 router.get('/coupons', protect, async (req, res) => {
   try {
     const coupons = [
-      { code: 'NEXASAVE20', discount: '20% OFF', expiry: '2026-12-31', minOrder: 1500, details: 'Valid on electronics & fashion category purchases.' },
+      { code: 'VYVORASAVE20', discount: '20% OFF', expiry: '2026-12-31', minOrder: 1500, details: 'Valid on electronics & fashion category purchases.' },
       { code: 'UPGRADE500', discount: '₹500 Flat OFF', expiry: '2026-10-15', minOrder: 4999, details: 'Flat discount applicable on order total above ₹4,999.' },
-      { code: 'WELCOME100', discount: '₹100 Flat OFF', expiry: '2026-08-30', minOrder: 500, details: 'Exclusive coupon for new signups on NexaCart.' }
+      { code: 'WELCOME100', discount: '₹100 Flat OFF', expiry: '2026-08-30', minOrder: 500, details: 'Exclusive coupon for new signups on Vyvora.' }
     ];
     res.json({
       success: true,

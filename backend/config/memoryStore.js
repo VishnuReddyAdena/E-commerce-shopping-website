@@ -201,7 +201,7 @@ const subcategoriesBrands = {
   'Deals': ['Apple', 'Samsung', 'Boat', 'Nike', 'HP'],
   'New Arrivals': ['OnePlus', 'Apple', 'Adidas', 'Sony', 'Dell'],
   'Brands': ['Apple', 'Samsung', 'Sony', 'LG', 'HP'],
-  'Gift Cards': ['NexaCart', 'Amazon', 'Google Play', 'Steam', 'Netflix'],
+  'Gift Cards': ['Vyvora', 'Amazon', 'Google Play', 'Steam', 'Netflix'],
   'Offer Zone': ['Boat', 'Realme', 'Puma', 'Noise', 'Realme']
 };
 
@@ -346,7 +346,7 @@ export const memoryUsers = [
   {
     _id: 'admin1',
     name: 'Admin Manager',
-    email: 'admin@nexacart.com',
+    email: 'admin@vyvora.com',
     password: 'password123',
     role: 'admin',
     country: 'India',
@@ -361,7 +361,7 @@ export const memoryUsers = [
   {
     _id: 'user1',
     name: 'Jane Customer',
-    email: 'user@nexacart.com',
+    email: 'user@vyvora.com',
     password: 'password123',
     role: 'user',
     country: 'USA',

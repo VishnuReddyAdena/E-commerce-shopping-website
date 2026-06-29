@@ -80,7 +80,7 @@ export default function AdminSidebar({ activeSection, onNavigate, collapsed, onT
                 transition={{ duration: 0.2 }}
                 className="min-w-0"
               >
-                <p className="text-sm font-bold text-slate-900 leading-tight tracking-tight">NexaCart</p>
+                <p className="text-sm font-bold text-slate-900 leading-tight tracking-tight">Vyvora</p>
                 <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Admin Portal</p>
               </motion.div>
             )}

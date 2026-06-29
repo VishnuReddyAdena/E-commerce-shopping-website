@@ -362,11 +362,11 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
             className="flex items-center gap-2 group cursor-pointer"
           >
             <span className="bg-gradient-to-tr from-blue-650 to-indigo-650 text-white w-9 h-9 rounded-2xl flex items-center justify-center font-black text-lg shadow-md group-hover:scale-105 transition-all">
-              N
+              V
             </span>
             <div className="flex flex-col">
               <span className="font-extrabold text-sm tracking-tight text-slate-800 leading-none">
-                NexaCart
+                Vyvora
               </span>
               <span className="text-[9px] font-bold text-indigo-600 tracking-wider uppercase mt-0.5">
                 Enterprise MERN
@@ -1056,9 +1056,9 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
               <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                 <div className="flex items-center gap-2">
                   <span className="bg-blue-650 text-white w-8 h-8 rounded-xl flex items-center justify-center font-black text-base shadow-sm">
-                    N
+                    V
                   </span>
-                  <span className="font-bold text-sm text-slate-800">NexaCart Menu</span>
+                  <span className="font-bold text-sm text-slate-800">Vyvora Menu</span>
                 </div>
                 <button
                   onClick={() => setMobileMenuOpen(false)}

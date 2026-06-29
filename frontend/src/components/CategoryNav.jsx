@@ -349,7 +349,7 @@ const categoriesData = [
     name: 'Gift Cards',
     icon: CreditCard,
     promo: 'Gift cards for your loved ones - Send instantly via Email',
-    brands: ['NexaCart', 'Amazon', 'Google Play', 'Steam', 'Netflix'],
+    brands: ['Vyvora', 'Amazon', 'Google Play', 'Steam', 'Netflix'],
     popular: ['E-Gift Vouchers', 'Festive Gift Cards'],
     subcategories: [
       'E-Gift Vouchers', 'Corporate Gift Cards', 'Festive Gift Cards', 'Brand Vouchers'

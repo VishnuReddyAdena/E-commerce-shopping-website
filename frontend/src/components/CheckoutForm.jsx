@@ -217,7 +217,7 @@ const CheckoutForm = () => {
           key: data.key,
           amount: data.amount,
           currency: data.currency,
-          name: 'NexaCart Shopping',
+          name: 'Vyvora Shopping',
           description: 'Secure Order Payment',
           order_id: data.id,
           handler: async function (response) {
@@ -762,7 +762,7 @@ const CheckoutForm = () => {
             <div className="text-xs font-semibold text-slate-500 space-y-2">
               <div className="flex justify-between">
                 <span>Merchant:</span>
-                <span className="font-bold text-slate-800">NexaCart Shopping</span>
+                <span className="font-bold text-slate-800">Vyvora Shopping</span>
               </div>
               <div className="flex justify-between">
                 <span>Razorpay Order ID:</span>

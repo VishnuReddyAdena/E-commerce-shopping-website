@@ -6,7 +6,7 @@ export const LiveChat = () => {
   const { user, socket } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { sender: 'agent', text: 'Hello! Welcome to NexaCart support. How can I help you today?', createdAt: new Date() }
+    { sender: 'agent', text: 'Hello! Welcome to Vyvora support. How can I help you today?', createdAt: new Date() }
   ]);
   const [inputText, setInputText] = useState('');
   const chatEndRef = useRef(null);

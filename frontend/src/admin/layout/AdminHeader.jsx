@@ -62,7 +62,7 @@ export default function AdminHeader({ activeSection, onOpenSearch, collapsed }) 
           {sectionTitles[activeSection] || 'Admin'}
         </h1>
         <p className="text-[10px] text-slate-400 font-medium">
-          NexaCart &rsaquo; {sectionTitles[activeSection] || 'Admin'}
+          Vyvora &rsaquo; {sectionTitles[activeSection] || 'Admin'}
         </p>
       </div>
 
@@ -106,16 +106,16 @@ export default function AdminHeader({ activeSection, onOpenSearch, collapsed }) 
                 className="absolute right-0 top-full mt-2 w-44 bg-white rounded-2xl border border-slate-250 shadow-2xl overflow-hidden z-50 py-1"
               >
                 {[
-                  { name: 'USA', label: 'NexaCart USA ($)', flag: '🇺🇸' },
-                  { name: 'India', label: 'NexaCart India (₹)', flag: '🇮🇳' },
-                  { name: 'Europe', label: 'NexaCart Europe (€)', flag: '🇪🇺' }
+                  { name: 'USA', label: 'Vyvora USA ($)', flag: '🇺🇸' },
+                  { name: 'India', label: 'Vyvora India (₹)', flag: '🇮🇳' },
+                  { name: 'Europe', label: 'Vyvora Europe (€)', flag: '🇪🇺' }
                 ].map((s) => (
                   <button
                     key={s.name}
                     onClick={() => {
                       setAdminStore(s.name);
                       localStorage.setItem('admin_store', s.name);
-                      addAuditLog('Store Switch', `Switched active store view to NexaCart ${s.name}.`, 'settings');
+                      addAuditLog('Store Switch', `Switched active store view to Vyvora ${s.name}.`, 'settings');
                       setShowStore(false);
                     }}
                     className={`w-full flex items-center justify-between px-3.5 py-2 text-xs text-left transition-colors hover:bg-slate-50 ${adminStore === s.name ? 'text-blue-600 font-bold bg-blue-50/40' : 'text-slate-650 font-medium'}`}

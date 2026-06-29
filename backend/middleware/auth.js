@@ -14,7 +14,7 @@ export const protect = async (req, res, next) => {
           req.user = {
             id: 'admin1',
             _id: 'admin1',
-            email: 'admin@nexacart.com',
+            email: 'admin@vyvora.com',
             name: 'Admin Manager',
             role: 'admin',
             country: 'India',
@@ -28,12 +28,12 @@ export const protect = async (req, res, next) => {
           return next();
         }
 
-        const { data: userProfile } = await supabase.from('profiles').select('*').eq('email', 'admin@nexacart.com').maybeSingle();
+        const { data: userProfile } = await supabase.from('profiles').select('*').eq('email', 'admin@vyvora.com').maybeSingle();
         let user = userProfile;
         if (!user) {
           const { data: newProfile } = await supabase.from('profiles').insert({
             id: '00000000-0000-0000-0000-000000000000',
-            email: 'admin@nexacart.com',
+            email: 'admin@vyvora.com',
             name: 'Admin Manager',
             role: 'admin',
             country: 'India',
@@ -187,7 +187,7 @@ export const optionalProtect = async (req, res, next) => {
           req.user = {
             id: 'admin1',
             _id: 'admin1',
-            email: 'admin@nexacart.com',
+            email: 'admin@vyvora.com',
             name: 'Admin Manager',
             role: 'admin',
             country: 'India',
@@ -200,7 +200,7 @@ export const optionalProtect = async (req, res, next) => {
           };
           return next();
         }
-        const { data: user } = await supabase.from('profiles').select('*').eq('email', 'admin@nexacart.com').maybeSingle();
+        const { data: user } = await supabase.from('profiles').select('*').eq('email', 'admin@vyvora.com').maybeSingle();
         if (user && !user.is_banned) {
           req.user = {
             ...user,

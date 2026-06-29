@@ -68,7 +68,7 @@ export const AdminDashboard = () => {
           </div>
           <h2 className="text-xl font-extrabold text-center uppercase tracking-wider">Admin Portal</h2>
           <p className="text-xs text-slate-400 text-center mt-1.5 mb-8">
-            Access restricted to NexaCart administrators.
+            Access restricted to Vyvora administrators.
           </p>
 
           {error && (
@@ -85,7 +85,7 @@ export const AdminDashboard = () => {
                 required
                 value={email}
                 onChange={(e) => { setError(''); setEmail(e.target.value); }}
-                placeholder="admin@nexacart.com"
+                placeholder="admin@vyvora.com"
                 className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>

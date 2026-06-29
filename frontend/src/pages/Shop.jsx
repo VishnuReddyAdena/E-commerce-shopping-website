@@ -168,8 +168,8 @@ export const Shop = () => {
     }
     if (activeSort === 'rating') {
       return {
-        title: "NexaCart Best Sellers 🏆",
-        description: "Explore the most purchased and highly reviewed products by NexaCart buyers.",
+        title: "Vyvora Best Sellers 🏆",
+        description: "Explore the most purchased and highly reviewed products by Vyvora buyers.",
         bgColor: "from-amber-500 to-orange-600",
         countdown: false
       };

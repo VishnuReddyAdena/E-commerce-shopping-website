@@ -92,7 +92,7 @@ export const AppProvider = ({ children }) => {
       const saved = localStorage.getItem('admin_audit_logs');
       return saved ? JSON.parse(saved) : [
         { id: '1', action: 'System Setup', detail: 'Admin portal initial setup completed.', timestamp: new Date(Date.now() - 3600000 * 24).toISOString(), type: 'system' },
-        { id: '2', action: 'Store Registered', detail: 'Store "NexaCart USA" registered successfully.', timestamp: new Date(Date.now() - 3600000 * 20).toISOString(), type: 'store' }
+        { id: '2', action: 'Store Registered', detail: 'Store "Vyvora USA" registered successfully.', timestamp: new Date(Date.now() - 3600000 * 20).toISOString(), type: 'store' }
       ];
     } catch {
       return [];
