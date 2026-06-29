@@ -63,7 +63,25 @@ export const AppProvider = ({ children }) => {
 
   // Real-time Notifications State
   const [notifications, setNotifications] = useState([]);
-  const [currency, setCurrency] = useState('INR');
+  const [currency, setCurrencyState] = useState('INR');
+
+  // Load currency preference for active user
+  useEffect(() => {
+    const userId = user?._id || 'guest';
+    const savedCurrency = localStorage.getItem(`currency_${userId}`);
+    if (savedCurrency) {
+      setCurrencyState(savedCurrency);
+    } else {
+      // Default to INR for India region, or fallback
+      setCurrencyState('INR');
+    }
+  }, [user]);
+
+  const setCurrency = (newCurrency) => {
+    setCurrencyState(newCurrency);
+    const userId = user?._id || 'guest';
+    localStorage.setItem(`currency_${userId}`, newCurrency);
+  };
 
   // Competition-Winning Admin Portal States
   const [adminStore, setAdminStore] = useState(() => localStorage.getItem('admin_store') || 'USA');
@@ -124,16 +142,18 @@ export const AppProvider = ({ children }) => {
     });
   };
 
-  // Synchronize currency based on active store
+  // Synchronize currency based on active store (for admins only)
   useEffect(() => {
-    if (adminStore === 'India') {
-      setCurrency('INR');
-    } else if (adminStore === 'Europe') {
-      setCurrency('EUR');
-    } else {
-      setCurrency('USD');
+    if (user?.role === 'admin') {
+      if (adminStore === 'India') {
+        setCurrency('INR');
+      } else if (adminStore === 'Europe') {
+        setCurrency('EUR');
+      } else {
+        setCurrency('USD');
+      }
     }
-  }, [adminStore]);
+  }, [adminStore, user]);
 
   const formatPrice = (priceUSD) => {
     const numericPrice = Number(priceUSD) || 0;
