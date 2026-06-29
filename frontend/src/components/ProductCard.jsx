@@ -6,7 +6,7 @@ import { useApp } from '../context/AppContext';
 import { Heart, Star, ShoppingCart, ArrowRightLeft } from 'lucide-react';
 
 export const ProductCard = ({ product, viewMode = 'grid' }) => {
-  const { wishlist, toggleWishlist, formatPrice, token } = useApp();
+  const { wishlist, toggleWishlist, formatPrice, token, addToCart } = useApp();
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
@@ -127,6 +127,13 @@ export const ProductCard = ({ product, viewMode = 'grid' }) => {
               </button>
 
               <button
+                onClick={(e) => { e.preventDefault(); requireAuth(() => addToCart(product, 1)); }}
+                className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all"
+              >
+                Add to Cart
+              </button>
+
+              <button
                 onClick={() => requireAuth(() => navigate(`/product/${product._id}`))}
                 className={`bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:shadow-lg transition-all`}
               >
@@ -215,11 +222,11 @@ export const ProductCard = ({ product, viewMode = 'grid' }) => {
             </button>
 
             <button
-              onClick={() => requireAuth(() => navigate(`/product/${product._id}`))}
+              onClick={(e) => { e.preventDefault(); requireAuth(() => addToCart(product, 1)); }}
               className="flex-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white py-2.5 px-5 rounded-full text-[11px] font-black uppercase tracking-widest hover:shadow-lg transition-all text-center flex items-center justify-center gap-1.5 shadow-md shadow-blue-200"
             >
               <ShoppingCart className="w-3 h-3" />
-              Buy
+              Add to Cart
             </button>
           </div>
         </div>
