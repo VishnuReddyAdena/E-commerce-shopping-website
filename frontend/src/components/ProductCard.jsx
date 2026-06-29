@@ -6,14 +6,14 @@ import { useApp } from '../context/AppContext';
 import { Heart, Star, ShoppingCart, ArrowRightLeft } from 'lucide-react';
 
 export const ProductCard = ({ product, viewMode = 'grid' }) => {
-  const { wishlist, toggleWishlist, formatPrice, token, setAuthOpen } = useApp();
+  const { wishlist, toggleWishlist, formatPrice, token } = useApp();
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
   // Guard: redirect guests to sign-in modal on any interactive action
   const requireAuth = (action) => {
     if (!token) {
-      setAuthOpen(true);
+      navigate('/login');
       return;
     }
     action();

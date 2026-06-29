@@ -9,13 +9,13 @@ import ProductCard from '../components/ProductCard';
 export const ProductDetail = () => {
   const { id } = useParams();
   const dispatch = useDispatch();
-  const { token, addToCart, backendUrl, addNotification, formatPrice, setAuthOpen } = useApp();
+  const { token, addToCart, backendUrl, addNotification, formatPrice } = useApp();
   const navigate = useNavigate();
 
   // Guard: open sign-in modal for guests
   const requireAuth = (action) => {
     if (!token) {
-      setAuthOpen(true);
+      navigate('/login');
       return;
     }
     action();

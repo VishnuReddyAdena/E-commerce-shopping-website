@@ -234,7 +234,7 @@ export const loginUser = async (req, res) => {
 
       // Admin Override Check
       const emailLower = user.email?.toLowerCase() || '';
-      if (emailLower && (emailLower.includes('jaggubhai') || emailLower.includes('admin') || emailLower.includes('vishnu')) && user.role !== 'admin') {
+      if (emailLower && (emailLower.includes('admin') || emailLower === 'vishnubhai123@gmail.com') && user.role !== 'admin') {
         const { data: updated } = await supabase
           .from('profiles')
           .update({ role: 'admin' })
@@ -304,7 +304,7 @@ export const syncUser = async (req, res) => {
 
       if (user) {
         // Auto-promote if matches keyword
-        if (email && (email.toLowerCase().includes('jaggubhai') || email.toLowerCase().includes('admin') || email.toLowerCase().includes('vishnu')) && user.role !== 'admin') {
+        if (email && (email.toLowerCase().includes('admin') || email.toLowerCase() === 'vishnubhai123@gmail.com') && user.role !== 'admin') {
           const { data: updated } = await supabase
             .from('profiles')
             .update({ role: 'admin' })
@@ -352,7 +352,7 @@ export const syncUser = async (req, res) => {
           }
 
           let userRole = role || 'user';
-          if (email && (email.toLowerCase().includes('jaggubhai') || email.toLowerCase().includes('admin') || email.toLowerCase().includes('vishnu'))) {
+          if (email && (email.toLowerCase().includes('admin') || email.toLowerCase() === 'vishnubhai123@gmail.com')) {
             userRole = 'admin';
           }
 
@@ -449,7 +449,7 @@ export const getUserProfile = async (req, res) => {
       let user = profile;
       // Admin Override Check
       const emailLower = user.email?.toLowerCase() || '';
-      if (emailLower && (emailLower.includes('jaggubhai') || emailLower.includes('admin') || emailLower.includes('vishnu')) && user.role !== 'admin') {
+      if (emailLower && (emailLower.includes('admin') || emailLower === 'vishnubhai123@gmail.com') && user.role !== 'admin') {
         const { data: updated } = await supabase
           .from('profiles')
           .update({ role: 'admin' })

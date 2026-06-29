@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
 import { useApp } from '../context/AppContext';
 import { Mail, Lock, User, UserPlus, ArrowRight } from 'lucide-react';
 
@@ -9,7 +8,7 @@ const COUNTRIES = [
 ];
 
 export default function Signup() {
-  const { register, googleLogin, loading, error } = useAuth();
+  const { register, googleLogin, loading, error } = useApp();
   const { addNotification } = useApp();
   const navigate = useNavigate();
 
@@ -21,12 +20,10 @@ export default function Signup() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      await register(name, email, password, 'user', country, referralCode);
-      addNotification('Account created successfully! Check your email for verification.', 'success');
+    // Signature in AppContext: register(name, email, password, role, referralCodeApplied, country)
+    const success = await register(name, email, password, 'user', referralCode, country);
+    if (success) {
       navigate('/login');
-    } catch (err) {
-      addNotification(err.message || 'Registration failed', 'error');
     }
   };
 

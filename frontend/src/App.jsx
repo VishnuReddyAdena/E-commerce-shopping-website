@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Navbar from './components/Navbar';
 import AuthModal from './components/AuthModal';
@@ -72,15 +72,18 @@ const NotificationToastContainer = () => {
 // ─── Global Auth Gate ────────────────────────────────────────────────────────
 // Blocks all page content for guests; forces them to log in first.
 const AuthGate = ({ children }) => {
-  const { token, authOpen, setAuthOpen } = useApp();
+  const { token } = useApp();
   const location = useLocation();
+  const navigate = useNavigate();
 
-  // Email verification link, login, signup, and reset-password are public routes
+  // Email verification link, login, signup, reset-password, and admin routes are public to their respective portals
   const isPublicRoute = 
     location.pathname.startsWith('/verify-email') || 
     location.pathname.startsWith('/login') || 
     location.pathname.startsWith('/signup') ||
-    location.pathname.startsWith('/reset-password');
+    location.pathname.startsWith('/reset-password') ||
+    location.pathname.startsWith('/admin-dashboard') ||
+    location.pathname.startsWith('/admin');
 
   // Show normal scrollable landing page for guests, but intercept clicks on interactive items to prompt sign in
   if (!token && !isPublicRoute) {
@@ -94,7 +97,7 @@ const AuthGate = ({ children }) => {
           if (isInteractive) {
             e.preventDefault();
             e.stopPropagation();
-            setAuthOpen(true);
+            navigate('/login');
           }
         }}
         className="w-full relative"

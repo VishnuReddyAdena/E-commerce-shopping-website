@@ -59,7 +59,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
   // Guard: redirect guests to sign-in modal
   const requireAuth = (action) => {
     if (!token) {
-      setAuthOpen(true);
+      navigate('/login');
       return;
     }
     action();
@@ -379,7 +379,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
         <form onSubmit={handleSearchSubmit} ref={suggestionsRef} className="flex-grow min-w-[450px] max-w-[600px] relative hidden md:block">
           <div
             className="flex items-center bg-slate-100 rounded-2xl px-4 py-2 border border-transparent focus-within:border-blue-650 focus-within:bg-white focus-within:shadow-md transition-all w-full"
-            onClick={() => { if (!token) { setAuthOpen(true); } }}
+            onClick={() => { if (!token) { navigate('/login'); } }}
           >
             <Search className="w-4 h-4 text-slate-455 flex-shrink-0" />
             <input
@@ -388,8 +388,8 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
               onKeyDown={handleInputKeyDown}
               placeholder="🔍 Search for products, brands and categories..."
               value={filters.keyword}
-              onChange={token ? handleSearchChange : (e) => { e.preventDefault(); setAuthOpen(true); }}
-              onFocus={() => { if (!token) { setAuthOpen(true); return; } setShowSuggestions(true); }}
+              onChange={token ? handleSearchChange : (e) => { e.preventDefault(); navigate('/login'); }}
+              onFocus={() => { if (!token) { navigate('/login'); return; } setShowSuggestions(true); }}
               readOnly={!token}
               className={`w-full bg-transparent border-none py-1 px-3 text-xs text-slate-800 placeholder-slate-400 focus:outline-none ${!token ? 'cursor-pointer' : ''}`}
             />
@@ -994,7 +994,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
           ) : (
             <div className="flex items-center gap-4 relative group cursor-pointer animate-none">
               <div 
-                onClick={onOpenAuth}
+                onClick={() => navigate('/login')}
                 className="flex items-center gap-2 hover:text-blue-650 py-1 font-bold text-xs text-slate-700 whitespace-nowrap"
               >
                 <User className="w-4 h-4 text-slate-500" />
@@ -1009,7 +1009,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
                 <p className="text-[10px] text-slate-455 font-extrabold uppercase mb-2">New Customer?</p>
                 <button
                   type="button"
-                  onClick={onOpenAuth}
+                  onClick={() => navigate('/login')}
                   className="w-full bg-[#2874F0] hover:bg-[#1b62d1] text-white py-2 rounded-xl text-xs font-black shadow-sm transition-all uppercase tracking-wider text-center"
                 >
                   Sign In
@@ -1017,7 +1017,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
                 <div className="border-t border-slate-100 pt-2.5 mt-2.5">
                   <button
                     type="button"
-                    onClick={onOpenAuth}
+                    onClick={() => navigate('/signup')}
                     className="text-[10px] text-blue-655 font-bold hover:underline"
                   >
                     Register Now
@@ -1120,7 +1120,7 @@ export const Navbar = ({ onOpenAuth, onOpenCart }) => {
                       <button
                         onClick={() => {
                           setMobileMenuOpen(false);
-                          onOpenAuth();
+                          navigate('/login');
                         }}
                         className="w-full bg-[#2874F0] hover:bg-[#1b62d1] text-white py-2 rounded-xl text-xs font-extrabold shadow-sm transition-colors uppercase tracking-wider text-center mt-1"
                       >

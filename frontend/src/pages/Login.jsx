@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
 import { useApp } from '../context/AppContext';
 import { Mail, Lock, LogIn, ArrowRight, ShieldCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 export default function Login() {
-  const { login, googleLogin, loading, error, setError } = useAuth();
-  const { addNotification } = useApp();
+  const { login, googleLogin, loading, error, setError, addNotification } = useApp();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
@@ -33,13 +31,12 @@ export default function Login() {
     }
 
     try {
-      const data = await login(email, password);
-      if (data) {
-        addNotification('Signed in successfully!', 'success');
+      const success = await login(email, password);
+      if (success) {
         navigate('/');
       }
     } catch (err) {
-      addNotification(err.message || 'Invalid email or password', 'error');
+      addNotification(err.message || 'Login failed', 'error');
     }
   };
 

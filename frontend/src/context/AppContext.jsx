@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useDispatch } from 'react-redux';
 import { setUser as setReduxUser, setToken as setReduxToken, clearAuth as clearReduxAuth } from '../store/authSlice';
@@ -10,10 +10,14 @@ import { setCategories as setReduxCategories } from '../store/categoriesSlice';
 
 const AppContext = createContext();
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || 'https://e-commerce-shopping-website-bfa8.onrender.com';
+const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const BACKEND_URL = isLocalhost 
+  ? 'http://localhost:5050' 
+  : (import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || 'https://e-commerce-shopping-website-bfa8.onrender.com');
 
 export const AppProvider = ({ children }) => {
   const dispatch = useDispatch();
+  const isRegisteringRef = useRef(false);
 
   // Authentication State
   const [user, setUser] = useState(() => {
@@ -644,6 +648,9 @@ export const AppProvider = ({ children }) => {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (isRegisteringRef.current) {
+        return;
+      }
       if (session?.user) {
         setToken(session.access_token);
         localStorage.setItem('token', session.access_token);
@@ -667,8 +674,11 @@ export const AppProvider = ({ children }) => {
       const response = await fetch(`${BACKEND_URL}/api/auth/profile`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      const data = await response.json();
+      let data = await response.json();
       if (response.ok) {
+        if (supabaseUser.app_metadata?.provider === 'google') {
+          data = { ...data, role: 'user' };
+        }
         setUser(data);
         localStorage.setItem('user', JSON.stringify(data));
       } else {
@@ -697,6 +707,21 @@ export const AppProvider = ({ children }) => {
   const login = async (email, password) => {
     setLoading(true);
     setError('');
+
+    const isFromAdminPortal = window.location.pathname.startsWith('/admin-dashboard') || window.location.pathname.startsWith('/admin');
+    if (email === 'vishnubhai123@gmail.com') {
+      if (!isFromAdminPortal) {
+        setError('Admin logins are restricted to the Admin Portal.');
+        setLoading(false);
+        return false;
+      }
+    } else {
+      if (isFromAdminPortal) {
+        setError('Only Administrator credentials can access the Admin Portal.');
+        setLoading(false);
+        return false;
+      }
+    }
     
     // Developer bypass for admin credentials
     if (email === 'vishnubhai123@gmail.com' && password === 'vishnu123@') {
@@ -762,6 +787,7 @@ export const AppProvider = ({ children }) => {
   const register = async (name, email, password, role = 'user', referralCodeApplied = '', country = 'India') => {
     setLoading(true);
     setError('');
+    isRegisteringRef.current = true;
     try {
       const { data, error: authError } = await supabase.auth.signUp({
         email,
@@ -788,12 +814,16 @@ export const AppProvider = ({ children }) => {
         });
       }
 
+      // Clear any auto-login session created by Supabase signUp
+      await supabase.auth.signOut();
+
       addNotification(`Registration successful! Please check your email for verification.`, 'success');
       return true;
     } catch (err) {
       setError(err.message || 'Registration failed');
       return false;
     } finally {
+      isRegisteringRef.current = false;
       setLoading(false);
     }
   };

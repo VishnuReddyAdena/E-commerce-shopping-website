@@ -105,6 +105,21 @@ export const protect = async (req, res, next) => {
         user = newProfile;
       }
 
+      // Demote Google OAuth logins from admin back to user (Google is customer-only)
+      if (user && supabaseUser.app_metadata?.provider === 'google' && user.role === 'admin') {
+        const { data: demotedProfile } = await supabase
+          .from('profiles')
+          .update({ role: 'user' })
+          .eq('id', user.id)
+          .select()
+          .maybeSingle();
+        if (demotedProfile) {
+          user = demotedProfile;
+        } else {
+          user.role = 'user';
+        }
+      }
+
       if (user.is_banned) {
         return res.status(403).json({ message: 'Your account has been banned. Please contact support.' });
       }
@@ -212,8 +227,12 @@ export const optionalProtect = async (req, res, next) => {
             req.user = user;
           }
         } else {
-          const { data: user } = await supabase.from('profiles').select('*').eq('id', supabaseUser.id).maybeSingle();
+          const { data: userProfile } = await supabase.from('profiles').select('*').eq('id', supabaseUser.id).maybeSingle();
+          let user = userProfile;
           if (user && !user.is_banned) {
+            if (supabaseUser.app_metadata?.provider === 'google' && user.role === 'admin') {
+              user.role = 'user';
+            }
             req.user = {
               ...user,
               _id: user.id,
