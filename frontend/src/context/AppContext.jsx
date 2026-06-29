@@ -379,8 +379,8 @@ export const AppProvider = ({ children }) => {
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          items: updatedItems.map(i => ({
-            productId: i.productId._id,
+          items: updatedItems.filter(i => i.productId).map(i => ({
+            productId: i.productId._id || i.productId.id,
             quantity: i.quantity
           }))
         })
@@ -397,7 +397,8 @@ export const AppProvider = ({ children }) => {
     }
 
     setCart((prevCart) => {
-      const existingItem = prevCart.find((item) => item.productId._id === product._id);
+      const productIdToFind = product._id || product.id;
+      const existingItem = prevCart.find((item) => (item.productId?._id || item.productId?.id) === productIdToFind);
       let newCart;
 
       if (existingItem) {
@@ -407,7 +408,7 @@ export const AppProvider = ({ children }) => {
           return prevCart;
         }
         newCart = prevCart.map((item) =>
-          item.productId._id === product._id ? { ...item, quantity: newQty } : item
+          (item.productId?._id || item.productId?.id) === productIdToFind ? { ...item, quantity: newQty } : item
         );
         addNotification('Hooray! 1 item added to the cart', 'success', { productName: product.title });
       } else {
@@ -422,7 +423,7 @@ export const AppProvider = ({ children }) => {
 
   const removeFromCart = (productId) => {
     setCart((prevCart) => {
-      const newCart = prevCart.filter((item) => item.productId._id !== productId);
+      const newCart = prevCart.filter((item) => (item.productId?._id || item.productId?.id) !== productId);
       syncCartWithBackend(newCart);
       return newCart;
     });
@@ -440,7 +441,7 @@ export const AppProvider = ({ children }) => {
     }
     setCart((prevCart) => {
       const newCart = prevCart.map((item) =>
-        item.productId._id === productId ? { ...item, quantity: safeQty } : item
+        (item.productId?._id || item.productId?.id) === productId ? { ...item, quantity: safeQty } : item
       );
       syncCartWithBackend(newCart);
       return newCart;
